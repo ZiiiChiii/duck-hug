@@ -66,6 +66,7 @@
            background: rgba(255,255,255,.8); border: 2px solid #1b1b1b; border-radius: 999px; padding: 5px 10px; color: #1b1b1b; }
   .mute-btn { position: fixed; top: calc(env(safe-area-inset-top) + 14px); right: 12px; font-size: 16px; line-height: 1;
            background: rgba(255,255,255,.8); border: 2px solid #1b1b1b; border-radius: 999px; padding: 5px 9px; }
+  .hap-btn { right: 58px; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 15px; }
 </style>
 <script type="importmap">
@@ -82,6 +83,7 @@
 <div class="room hidden" id="room"></div>
 <button class="menu-btn" id="menuBtn">☰ 選單</button>
 <button class="mute-btn" id="muteBtn" aria-label="音效開關">🔊</button>
+<button class="mute-btn hap-btn" id="hapBtn" aria-label="震動開關">📳</button>
 <div class="panel" id="menu">
   <h2>抱抱鴨・接住小鴨</h2>
   <input id="nameIn" maxlength="10" placeholder="輸入你的名字" autocomplete="off">

@@ -3,6 +3,7 @@ import { OrbitControls } from './vendor/OrbitControls.js';
 import { mergeVertices } from './vendor/BufferGeometryUtils.js';
 import { hasServer, serverRoom, submitScore, topScores } from './net.js';
 import * as sfx from './sfx.js';
+import * as hap from './haptics.js';
 
 // ---------- 基本場景 ----------
 const BG = 0xefebe4;
@@ -445,7 +446,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
     popHearts();
     sfx.squeak();
     quackQuack();
-    if (navigator.vibrate) navigator.vibrate(20);
+    hap.caught();
   }
   down = null;
 });
@@ -562,7 +563,7 @@ function startRound() {
   show(submitEl, false);
   resetLooks();
   setState('toss');
-  sfx.whooshUp();
+  sfx.whooshUp(); hap.toss();
   setButton('接住！');
 }
 // 雙人：把鴨子拋給朋友
@@ -572,7 +573,7 @@ function doThrow() {
   resetLooks();
   pickTrick();
   setState('toss');
-  sfx.whooshUp();
+  sfx.whooshUp(); hap.toss();
   setButton('拋出去了！', false);
 }
 function tryCatch() {
@@ -590,14 +591,14 @@ function tryCatch() {
         if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
         updateScore();
         const unlocked = TRICKS.find((tr) => tr.unlock === streak);
-        if (unlocked || streak % 5 === 0) sfx.fanfare(); else sfx.catchSound(streak);
+        if (unlocked || streak % 5 === 0) { sfx.fanfare(); hap.big(); } else { sfx.catchSound(streak); hap.caught(); }
         if (unlocked) toast(`🔓 新花招：${unlocked.name.replace('！', '')}（${unlocked.tip}）`);
         else toast(streak >= 3 ? `接得好！連續 ${streak} 隻` : '接得好！');
-        if (navigator.vibrate) navigator.vibrate(30);
+
         setButton('…', false);
       } else {
         toast('太早了！');
-        sfx.swish();
+        sfx.swish(); hap.early();
         earlyCooldown = 0.1;
         setButton('…', false);
       }
@@ -607,11 +608,16 @@ function tryCatch() {
 // 所有按鈕：按下就有「噗」的回饋音（盡早解鎖手機的聲音）
 document.addEventListener('pointerdown', (e) => {
   const b = e.target.closest && e.target.closest('button');
-  if (b && !b.disabled) { audio(); sfx.click(); }
+  if (b && !b.disabled) { audio(); sfx.click(); hap.tap(); }
 }, true);
 const muteBtn = document.getElementById('muteBtn');
 const drawMute = () => { muteBtn.textContent = sfx.isMuted() ? '🔇' : '🔊'; };
 drawMute();
+const hapBtn = document.getElementById('hapBtn');
+const drawHap = () => { hapBtn.textContent = hap.isOn() ? '📳' : '📴'; };
+if (!hap.supported()) hapBtn.classList.add('hidden');
+drawHap();
+hapBtn.addEventListener('click', (e) => { e.stopPropagation(); hap.setOn(!hap.isOn()); drawHap(); if (hap.isOn()) hap.caught(); });
 muteBtn.addEventListener('click', (e) => { e.stopPropagation(); audio(); sfx.setMuted(!sfx.isMuted()); drawMute(); });
 actionBtn.addEventListener('click', (e) => {
   e.stopPropagation();
@@ -718,12 +724,12 @@ function startDuo() {
     role = 'thrower'; smallY = CATCH_Y; setState('idle');
     setButton('拋出鴨！ 🦆');
     toast(`${partner.name} 加入了！你先拋鴨`);
-    sfx.dingDong();
+    sfx.dingDong(); hap.ding();
   } else {
     role = 'catcher'; setState('await');
     setButton('等朋友拋鴨…', false);
     toast(`加入成功！等 ${partner.name} 拋鴨`);
-    sfx.dingDong();
+    sfx.dingDong(); hap.ding();
   }
 }
 function onPeersChange(change) {
@@ -791,7 +797,7 @@ function handleMsg(msg) {
     if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
     updateScore();
     toast(msg.ok ? `${partner ? partner.name : '朋友'} 收到鴨！🎉` : `${partner ? partner.name : '朋友'} 沒接到…`);
-    if (msg.ok) { sfx.catchSound(streak); quack(0.3, 1.1, 0.35, 0.15); } else sfx.sadTrombone(0);
+    if (msg.ok) { sfx.catchSound(streak); quack(0.3, 1.1, 0.35, 0.15); hap.caught(); } else { sfx.sadTrombone(0); hap.sad(); }
     role = 'catcher';
     setState('await');
     setButton('換你接！等朋友拋鴨…', false);
@@ -962,18 +968,18 @@ function animate() {
     if (has('hover') && !ts.hovered && relNow < ts.hoverAt) {
       ts.hoverT += dt; vel = 0;
       ts.flapT = (ts.flapT || 0) + dt;
-      if (ts.flapT > 0.11) { ts.flapT = 0; sfx.flap(); }
+      if (ts.flapT > 0.11) { ts.flapT = 0; sfx.flap(); hap.reopen(); }
       if (ts.hoverT > ts.hoverFor) { ts.hovered = true; speedMul = 1.35; vel = vmax() * 0.8; }
     } else {
       // 衝刺：前段慢慢掉，到某個高度突然加速
       if (has('dash')) {
         if (!ts.dashed && relNow > ts.dashAt) speedMul = 0.45;
-        else if (!ts.dashed) { ts.dashed = true; speedMul = 1.9; vel = vmax(); sfx.zoom(); }
+        else if (!ts.dashed) { ts.dashed = true; speedMul = 1.9; vel = vmax(); sfx.zoom(); hap.dash(); }
       }
       vel = Math.min(vel + 9 * dt, vmax());
       // 彈跳／二段跳：往上彈一下
       if (ts.hopDone < ts.hops && relNow < ts.hopAt - ts.hopDone * 0.7 && vel > 0) {
-        ts.hopDone++; vel = -(3.2 + Math.random() * 1.2); sfx.boing();
+        ts.hopDone++; vel = -(3.2 + Math.random() * 1.2); sfx.boing(); hap.hop();
       }
       smallY -= vel * dt;
     }
@@ -982,7 +988,7 @@ function animate() {
     smallX = has('zigzag') ? Math.sin(stateT * ts.zigSpeed) * ts.zigAmp * THREE.MathUtils.clamp((relNow - 0.2) / 2.2, 0, 1) : 0;
     // 隱形：一段時間看不見
     const vis = !(has('vanish') && relNow < ts.vanishFrom && relNow > ts.vanishTo);
-    if (vis !== small.visible) { if (vis) sfx.pop(); else sfx.poof(); }
+    if (vis !== small.visible) { if (vis) sfx.pop(); else sfx.poof(); hap.poof(); }
     small.visible = vis;
     sfx.setFall(relNow, has('zigzag') && relNow > 0.2, !vis);
     flail = 1;
@@ -999,8 +1005,8 @@ function animate() {
       setState('miss');
       lastScore = streak;
       streak = 0; updateScore();
-      sfx.stopFall(); sfx.thud(); sfx.sadTrombone(0.2); sob();
-      if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+      sfx.stopFall(); sfx.thud(); sfx.sadTrombone(0.2); sob(); hap.miss();
+
     }
   } else if (state === 'caught') {
     bounce = -0.16 * Math.sin(stateT * 13) * Math.exp(-stateT * 5);
