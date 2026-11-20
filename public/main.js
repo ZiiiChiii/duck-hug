@@ -613,6 +613,7 @@ document.addEventListener('pointerdown', (e) => {
 const muteBtn = document.getElementById('muteBtn');
 const drawMute = () => { muteBtn.textContent = sfx.isMuted() ? '🔇' : '🔊'; };
 drawMute();
+hap.setShakeTarget(renderer.domElement);
 const hapBtn = document.getElementById('hapBtn');
 const drawHap = () => { hapBtn.textContent = hap.isOn() ? '📳' : '📴'; };
 if (!hap.supported()) hapBtn.classList.add('hidden');
