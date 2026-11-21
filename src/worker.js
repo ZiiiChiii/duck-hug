@@ -51,7 +51,7 @@ export default {
 export class Room extends DurableObject {
   async fetch(req) {
     const open = this.ctx.getWebSockets();
-    if (open.length >= 6) return json({ error: 'room full' }, 429);
+    if (open.length >= 10) return json({ error: 'room full' }, 429);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     const pid = 'p' + crypto.randomUUID().replace(/-/g, '').slice(0, 10);

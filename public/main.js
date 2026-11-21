@@ -40,7 +40,7 @@ const BLACK = new THREE.MeshBasicMaterial({ color: 0x1b1b1b });
 
 // 黑色描邊（反向外殼，固定粗細，可承受非等比縮放）
 const outlineMat = new THREE.ShaderMaterial({
-  uniforms: { thickness: { value: 0.05 } }, // 比毛長一點，毛會蓋住一部分黑邊 → 邊緣毛毛的
+  uniforms: { thickness: { value: 0.028 } },
   vertexShader: `
     uniform float thickness;
     void main() {
@@ -66,79 +66,10 @@ function smoothOutline(geom) {
   return m;
 }
 
-// ---------- 毛絨絨：殼層毛皮（同一個形狀往外疊好幾層，越外層毛越稀疏） ----------
-const FUR_LAYERS = 12, FUR_LEN = 0.04, FUR_DENSITY = 42;
-const FUR_LIGHT = new THREE.Vector3(3, 6, 5).normalize();
-const FUR_COLOR = new THREE.Color(0xfdfcf8);
-const furVertex = `
-  uniform float h; uniform float len;
-  varying vec3 vBase; varying vec3 vN;
-  void main() {
-    vBase = position;
-    vec3 wn = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
-    vec4 wp = modelMatrix * vec4(position, 1.0);
-    wp.xyz += wn * h * len;
-    wp.y -= h * h * len * 0.4;               // 毛尖稍微往下垂
-    vN = normalize(normalMatrix * normal);
-    gl_Position = projectionMatrix * viewMatrix * wp;
-  }`;
-const furFragment = `
-  uniform float h; uniform vec3 color; uniform vec3 lightDir; uniform vec3 sc; uniform float density;
-  varying vec3 vBase; varying vec3 vN;
-  float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-  float noise(vec3 x) {
-    vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x), mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
-               mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
-  }
-  void main() {
-    vec3 q = vBase * sc * density;
-    float n = noise(q) * 0.6 + noise(q * 2.7 + 7.0) * 0.4;
-    if (n < 0.12 + h * 0.78) discard;           // 越外層，留下的毛越少 → 毛尖變細
-    vec3 L = normalize((viewMatrix * vec4(lightDir, 0.0)).xyz);
-    float d = max(dot(normalize(vN), L), 0.0);
-    float band = d > 0.55 ? 1.0 : d > 0.15 ? 0.9 : 0.76;
-    float ao = mix(0.7, 1.05, h);                // 毛根比較暗、毛尖比較亮
-    gl_FragColor = vec4(color * band * ao, 1.0);
-    #include <colorspace_fragment>
-  }`;
-const furScratch = new THREE.Vector3();
-const furShells = [];
-function addFur(group, geom) {
-  for (let i = 0; i < FUR_LAYERS; i++) {
-    const m = new THREE.ShaderMaterial({
-      uniforms: {
-        h: { value: (i + 1) / FUR_LAYERS }, len: { value: FUR_LEN }, color: { value: FUR_COLOR },
-        lightDir: { value: FUR_LIGHT }, sc: { value: new THREE.Vector3(1, 1, 1) }, density: { value: FUR_DENSITY },
-      },
-      vertexShader: furVertex, fragmentShader: furFragment,
-    });
-    const shell = new THREE.Mesh(geom, m);
-    shell.renderOrder = 1;
-    let ready = false;
-    // 第一次畫的時候記下這個零件的縮放，讓毛的粗細在大小不同的零件上都一樣
-    shell.onBeforeRender = () => { if (!ready) { shell.getWorldScale(furScratch); m.uniforms.sc.value.copy(furScratch); ready = true; } };
-    shell.userData.layer = i;
-    furShells.push(shell);
-    group.add(shell);
-  }
-}
-// 手機太慢的話，自動少畫一半的毛層（看起來差不多，但順很多）
-let furFrames = 0, furTime = 0, furReduced = false;
-function furAutoQuality(dt) {
-  if (furReduced || furFrames > 150) return;
-  furFrames++; furTime += dt;
-  if (furFrames === 150 && furTime / furFrames > 1 / 40) {
-    furReduced = true;
-    for (const sh of furShells) if (sh.userData.layer % 2 === 0) sh.visible = false;
-  }
-}
-
 function part(geom, material, outline = true) {
   const g = new THREE.Group();
   g.add(new THREE.Mesh(geom, material));
   if (outline) g.add(new THREE.Mesh(smoothOutline(geom), outlineMat));
-  if (material === WHITE) addFur(g, geom);
   return g;
 }
 
@@ -244,7 +175,6 @@ function makeWing(Lw, W, bend) {
   }
   const grp = new THREE.Group();
   grp.add(new THREE.Mesh(flat, WHITE));
-  addFur(grp, flat);
   grp.add(new THREE.Mesh(rim, RIM));
   return grp;
 }
@@ -278,7 +208,7 @@ function fingers(material, count, size, spacing) {
 function eye(r, y, theta, size) {
   const e = new THREE.Mesh(SPHERE, BLACK);
   e.scale.set(size, size * 1.15, size * 0.6);
-  e.position.copy(onSurface(r, y, theta, 0.022)); // 浮在毛上面，不被毛蓋住
+  e.position.copy(onSurface(r, y, theta, -0.005));
   e.lookAt(e.position.clone().multiplyScalar(2).setY(y));
   return e;
 }
@@ -298,14 +228,13 @@ function smileBeak(r, y, k) {
   inside.position.set(0, -0.005, 0.07);
   g.add(inside);
   // 下嘴：往下張開，形狀像微笑的弧線
-  const lowerGeom = new THREE.SphereGeometry(1, 40, 24, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.55);
-  const lower = part(lowerGeom, ORANGE);
-  lower.scale.set(0.17, 0.09, 0.14);
-  lower.position.set(0, -0.06, 0.04);
-  lower.rotation.x = 0.48;
+  const lower = part(SPHERE, ORANGE); // 完整的形狀，從任何角度看都是實心的
+  lower.scale.set(0.17, 0.065, 0.14);
+  lower.position.set(0, -0.085, 0.045);
+  lower.rotation.x = 0.42;
   g.add(lower);
   g.scale.setScalar(k);
-  g.position.set(0, y, z0 + 0.03); // 嘴巴也浮在毛上面
+  g.position.set(0, y, z0);
   return g;
 }
 
@@ -565,7 +494,7 @@ let role = null;                          // 雙人：thrower 拋鴨的人 / cat
 let resultSent = false;
 let lastScore = 0;
 let streak = 0, best = 0, spoke = false, landed = false;
-const bestKey = () => (mode === 'duo' ? 'hugduck-best-duo' : 'hugduck-best');
+const bestKey = () => (mode === 'duo' ? 'hugduck-best-duo' : mode === 'multi' ? 'hugduck-best-multi' : 'hugduck-best');
 function loadBest() { try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) { best = 0; } }
 loadBest();
 let speedMul = 1;
@@ -639,7 +568,7 @@ function setState(s) {
   state = s; stateT = 0; spoke = false;
 }
 function setButton(text, enabled = true, ic = null) { setLabel(actionBtn, text, ic, { size: 26 }); actionBtn.disabled = !enabled; }
-function updateScore() { scoreEl.textContent = `${mode === 'duo' ? '雙人合作 ' : ''}連續接住 ${streak} 隻　最佳 ${best} 隻`; }
+function updateScore() { scoreEl.textContent = `${mode === 'duo' ? '雙人合作 ' : mode === 'multi' ? '派對 ' : ''}連續接住 ${streak} 隻　最佳 ${best} 隻`; }
 let toastTimer;
 function toast(text, ic = null) {
   setLabel(toastEl, text, ic, { size: 30 });
@@ -740,7 +669,7 @@ actionBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   const ready = state === 'idle' || state === 'caught' || state === 'miss';
   if (mode === 'solo') { if (ready) startRound(); else tryCatch(); }
-  else if (role === 'thrower' && ready) doThrow();
+  else if (role === 'thrower' && ready) { if (!players.length) { toast('房間裡還沒有其他人'); return; } doThrow(); }
   else tryCatch();
 });
 window.addEventListener('keydown', (e) => {
@@ -749,21 +678,29 @@ window.addEventListener('keydown', (e) => {
 setButton('開始遊戲');
 updateScore();
 
-// ---------- 雙人連線 ----------
+// ---------- 連線房間：雙人（2 人）＋多人派對（最多 8 人） ----------
+// 拋鴨的人按「拋出鴨！」→ 隨機挑房間裡另一個人接 → 接的人（不管有沒有接住）變成下一個拋鴨的人
 const menuEl = document.getElementById('menu');
 const duoEl = document.getElementById('duo');
 const duoMsg = document.getElementById('duoMsg');
+const duoTitle = document.getElementById('duoTitle');
+const lobbyEl = document.getElementById('lobby');
+const startBtn = document.getElementById('startBtn');
 const nameIn = document.getElementById('nameIn');
 const codeIn = document.getElementById('codeIn');
 const roomEl = document.getElementById('room');
 const menuBtn = document.getElementById('menuBtn');
-let net = null, roomCode = null, isHost = false, partner = null, mySeq = 0;
+const MAX_PLAYERS = 8;
+let net = null, roomCode = null, isHost = false, roomKind = 'duo', mySeq = 0;
+let myPeer = null, players = [], partner = null, started = false;
+let currentThrower = null, pendingTarget = null, joinedAt = 0;
 const seen = {};
-let partnerLostTimer = null;
+let lostTimer = null;
 try { nameIn.value = localStorage.getItem('hugduck-name') || ''; } catch (e) {}
 
 function show(el, on) { el.classList.toggle('hidden', !on); }
 function myName() { return (nameIn.value || '').trim().slice(0, 10) || '玩家'; }
+const nameOf = (peer) => (peer === myPeer ? myName() : (players.find((x) => x.peer === peer) || {}).name || '朋友');
 function openMenu() {
   leaveRoom();
   mode = 'solo'; role = null; streak = 0; loadBest(); updateScore();
@@ -773,18 +710,25 @@ function openMenu() {
   show(document.getElementById('dex'), false);
 }
 function leaveRoom() {
-  if (net && roomCode) net.presence({ code: null, msg: null, name: null, host: null }).catch(() => {});
-  roomCode = null; partner = null; isHost = false;
+  if (net && roomCode) net.presence({ code: null, msg: null, name: null, host: null, kind: null }).catch(() => {});
+  roomCode = null; partner = null; isHost = false; players = []; started = false;
+  currentThrower = null; pendingTarget = null;
+  clearTimeout(lostTimer); lostTimer = null;
 }
 document.getElementById('soloBtn').addEventListener('click', () => {
   mode = 'solo'; streak = 0; loadBest(); updateScore();
   show(menuEl, false); show(actionBtn, true);
   setButton('開始遊戲');
 });
-document.getElementById('duoBtn').addEventListener('click', () => {
+function openRoomPanel(kind) {
+  roomKind = kind;
+  setLabel(duoTitle, kind === 'multi' ? '多人派對' : '雙人連線', kind === 'multi' ? 'party' : 'duo', { size: 26 });
   show(menuEl, false); show(duoEl, true);
-  duoMsg.textContent = '';
-});
+  show(lobbyEl, false); show(startBtn, false); show(document.getElementById('roomJoin'), true);
+  duoMsg.textContent = kind === 'multi' ? '3～8 人一起玩，拋出去的鴨子會隨機飛給其中一個人！' : '';
+}
+document.getElementById('duoBtn').addEventListener('click', () => openRoomPanel('duo'));
+document.getElementById('multiBtn').addEventListener('click', () => openRoomPanel('multi'));
 document.getElementById('backBtn').addEventListener('click', openMenu);
 menuBtn.addEventListener('click', openMenu);
 
@@ -798,7 +742,7 @@ async function getNet() {
   if (!net) {
     duoMsg.textContent = (await hasServer())
       ? '連不上伺服器，請檢查網路後再試一次。'
-      : '這個裝置目前無法雙人連線。預覽版只能在登入同一個 claude.ai 帳號的裝置之間連線。';
+      : '這個裝置目前無法連線。預覽版只能在登入同一個 claude.ai 帳號的裝置之間連線。';
     return null;
   }
   net.onPeers(onPeersChange, () => {
@@ -806,19 +750,22 @@ async function getNet() {
   });
   return net;
 }
+function myPresence(extra = {}) { return { code: roomCode, name: myName(), host: isHost, kind: isHost ? roomKind : undefined, ...extra }; }
 function sendMsg(msg) {
   if (!net) return;
   mySeq++;
-  net.presence({ code: roomCode, name: myName(), host: isHost, msg: { ...msg, n: mySeq } }).catch(() => {});
+  net.presence(myPresence({ msg: { ...msg, n: mySeq } })).catch(() => {});
 }
 async function enterRoom(code, host) {
   try { localStorage.setItem('hugduck-name', myName()); } catch (e) {}
   if (!(await getNet())) return;
-  roomCode = code; isHost = host; partner = null; mySeq = 0;
-  await net.presence({ code, name: myName(), host, msg: null }).catch(() => {});
+  roomCode = code; isHost = host; partner = null; players = []; mySeq = 0; started = false;
+  currentThrower = null; pendingTarget = null; joinedAt = Date.now();
+  await net.presence(myPresence({ msg: null })).catch(() => {});
   show(document.getElementById('inviteBtn'), host);
+  show(document.getElementById('roomJoin'), false);
   duoMsg.textContent = host
-    ? `房間號碼：${code}\n請朋友選「雙人連線」，輸入這個號碼加入。\n等待朋友加入中…`
+    ? `房間號碼：${code}\n請朋友選「${roomKind === 'multi' ? '多人派對' : '雙人連線'}」，輸入這個號碼加入。`
     : `正在加入房間 ${code}…`;
   onPeersChange({ peers: net.peers() });
 }
@@ -833,62 +780,167 @@ document.getElementById('joinBtn').addEventListener('click', () => {
   enterRoom(code, false);
 });
 
-function startDuo() {
-  mode = 'duo'; streak = 0; loadBest(); updateScore();
-  show(duoEl, false); show(actionBtn, true); show(roomEl, true);
-  roomEl.textContent = `房間 ${roomCode}｜你：${myName()}　朋友：${partner.name}`;
-  resetLooks(); smallZ = HOLD_Z;
+// ---- 大廳（多人）：顯示誰在房間裡，房主按「開始」 ----
+function drawLobby() {
+  if (roomKind !== 'multi' || started) return;
+  show(lobbyEl, true);
+  lobbyEl.textContent = '';
+  const everyone = [{ peer: myPeer, name: myName(), host: isHost }, ...players];
+  for (const pl of everyone) {
+    const li = document.createElement('li');
+    li.innerHTML = icon(pl.host ? 'duck' : 'chick', 24);
+    const nm = document.createElement('span');
+    nm.textContent = pl.name + (pl.peer === myPeer ? '（你）' : '') + (pl.host ? '・房主' : '');
+    li.appendChild(nm);
+    lobbyEl.appendChild(li);
+  }
   if (isHost) {
-    role = 'thrower'; smallY = CATCH_Y; setState('idle');
-    setButton('拋出鴨！', true, 'duck');
-    toast(`${partner.name} 加入了！你先拋鴨`);
-    sfx.dingDong(); hap.ding();
+    show(startBtn, true);
+    startBtn.disabled = players.length < 1;
+    setLabel(startBtn, players.length < 1 ? '等朋友加入…' : `開始派對（${everyone.length} 人）`, 'party');
   } else {
-    role = 'catcher'; setState('await');
-    setButton('等朋友拋鴨…', false);
-    toast(`加入成功！等 ${partner.name} 拋鴨`);
-    sfx.dingDong(); hap.ding();
+    show(startBtn, false);
+    duoMsg.textContent = `已加入房間 ${roomCode}，等房主按開始…`;
   }
 }
+startBtn.addEventListener('click', () => {
+  if (!isHost || players.length < 1) return;
+  sendMsg({ t: 'start' });
+  beginGame(myPeer);
+});
+
+// 正式開始：first = 第一個拋鴨的人
+function beginGame(first) {
+  started = true;
+  mode = roomKind; streak = 0; loadBest(); updateScore();
+  show(duoEl, false); show(actionBtn, true); show(roomEl, true);
+  drawRoomLine();
+  resetLooks(); smallZ = HOLD_Z;
+  currentThrower = first;
+  if (first === myPeer) becomeThrower(roomKind === 'duo' ? `${partner ? partner.name : '朋友'} 加入了！你先拋鴨` : '你先拋鴨！');
+  else becomeWaiter(`加入成功！等 ${nameOf(first)} 拋鴨`);
+  sfx.dingDong(); hap.ding();
+}
+function becomeThrower(msg) {
+  role = 'thrower'; pendingTarget = null;
+  if (state === 'sent' || state === 'await') { smallY = CATCH_Y; smallZ = HOLD_Z; setState('idle'); }
+  setButton('拋出鴨！', true, 'duck');
+  if (msg) toast(msg);
+}
+function becomeWaiter(msg) {
+  role = 'catcher';
+  setState('await');
+  setButton(roomKind === 'multi' ? '等鴨子飛來…' : '等朋友拋鴨…', false);
+  if (msg) toast(msg);
+}
+function drawRoomLine() {
+  if (roomKind === 'duo') roomEl.textContent = `房間 ${roomCode}｜你：${myName()}　朋友：${partner ? partner.name : '—'}`;
+  else roomEl.textContent = `房間 ${roomCode}｜${players.length + 1} 人：${[myName(), ...players.map((x) => x.name)].join('、')}`;
+}
+
 function onPeersChange(change) {
   if (!roomCode) return;
-  const others = change.peers.filter((p) => !p.sameTab && p.presence && p.presence.code === roomCode && p.presence.host !== isHost);
-  const p = partner ? others.find((o) => o.peer === partner.peer) || others[0] : others[0];
-  if (!p) {
-    if (partner && !partnerLostTimer) {
-      partnerLostTimer = setTimeout(() => {
-        partnerLostTimer = null;
-        if (partner && mode === 'duo') { toast('朋友離線了'); openMenu(); }
-      }, 3000);
+  const me = change.peers.find((p) => p.sameTab);
+  if (me) myPeer = me.peer;
+  const others = change.peers.filter((p) => !p.sameTab && p.presence && p.presence.code === roomCode);
+  // 加入的人跟著房主的模式（雙人／多人）
+  const hostP = others.find((p) => p.presence.host);
+  if (!isHost && hostP && !started) {
+    const k = hostP.presence.kind === 'multi' ? 'multi' : 'duo';
+    if (k !== roomKind) { roomKind = k; setLabel(duoTitle, k === 'multi' ? '多人派對' : '雙人連線', k === 'multi' ? 'party' : 'duo', { size: 26 }); }
+  }
+  let list = others.map((p) => ({ peer: p.peer, name: String(p.presence.name || '朋友').slice(0, 10), host: !!p.presence.host, presence: p.presence }));
+  if (roomKind === 'duo') list = list.filter((x) => x.host !== isHost).slice(0, 1);
+  else list = list.slice(0, MAX_PLAYERS - 1);
+  const before = players.map((x) => x.peer);
+  players = list.map(({ presence, ...rest }) => rest);
+  for (const x of players) if (!before.includes(x.peer)) seen[x.peer] = seen[x.peer] || 0;
+
+  if (roomKind === 'duo') {
+    const p = players[0];
+    if (!p) {
+      if (partner && !lostTimer) lostTimer = setTimeout(() => { lostTimer = null; if (!players.length && mode === 'duo') { toast('朋友離線了'); openMenu(); } }, 3000);
+    } else {
+      clearTimeout(lostTimer); lostTimer = null;
+      if (!partner || partner.peer !== p.peer) {
+        partner = { peer: p.peer, name: p.name };
+        if (!started && myPeer) beginGame(isHost ? myPeer : p.peer);
+      }
     }
-    return;
+  } else {
+    drawLobby();
+    if (started) { drawRoomLine(); checkStuck(); }
   }
-  clearTimeout(partnerLostTimer); partnerLostTimer = null;
-  const name = String(p.presence.name || '朋友').slice(0, 10);
-  if (!partner || partner.peer !== p.peer) {
-    partner = { peer: p.peer, name };
-    seen[p.peer] = 0;
-    if (mode !== 'duo') startDuo();
-  }
-  const msg = p.presence.msg;
-  if (msg && typeof msg.n === 'number' && msg.n > (seen[p.peer] || 0)) {
-    seen[p.peer] = msg.n;
-    handleMsg(msg);
+
+  // 讀每個人送來的訊息（同一則只處理一次）
+  for (const x of list) {
+    const msg = x.presence.msg;
+    if (msg && typeof msg.n === 'number' && msg.n > (seen[x.peer] || 0)) {
+      const first = !(x.peer in seenInit);
+      seenInit[x.peer] = true;
+      seen[x.peer] = msg.n;
+      // 剛進房間時看到的是「舊訊息」，只拿來知道現在輪到誰，不重播
+      if (first && Date.now() - joinedAt > 0 && msg.at && Date.now() - msg.at > 4000) { syncFromOld(msg, x.peer); continue; }
+      handleMsg(msg, x.peer);
+    } else if (!(x.peer in seenInit)) seenInit[x.peer] = true;
   }
 }
+const seenInit = {};
+function syncFromOld(msg, from) {
+  if (roomKind !== 'multi' || !msg) return;
+  if (msg.t === 'start') { if (!started) beginGame(from); }
+  else if (msg.t === 'result') { if (!started) beginGame(from); currentThrower = from; }
+  else if (msg.t === 'throw') { if (!started) beginGame(from); currentThrower = msg.to || from; }
+}
+
+// 有人離開時別讓遊戲卡住
+function checkStuck() {
+  if (!started || roomKind !== 'multi') return;
+  const alive = new Set([myPeer, ...players.map((x) => x.peer)]);
+  if (state === 'sent' && pendingTarget && !alive.has(pendingTarget)) {
+    becomeThrower('接鴨的人離開了，鴨子飛回來了，再拋一次！');
+    return;
+  }
+  if (currentThrower && !alive.has(currentThrower)) {
+    // 拋鴨的人離開了 → 由編號最小的人接手拋鴨
+    const next = [...alive].sort()[0];
+    currentThrower = next;
+    if (next === myPeer && role !== 'thrower') becomeThrower('拋鴨的人離開了，換你拋！');
+  }
+  if (players.length === 0 && role === 'thrower') setButton('等其他人加入…', false);
+  else if (role === 'thrower' && (state === 'idle' || state === 'caught' || state === 'miss') && actionBtn.disabled && stateT > 1.5) setButton('拋出鴨！', true, 'duck');
+}
+
 function sendThrow() {
+  // 隨機挑一個「不是自己」的人來接
+  const target = players.length ? players[Math.floor(Math.random() * players.length)] : null;
+  if (!target) { becomeThrower('房間裡沒有其他人了'); return; }
+  pendingTarget = target.peer;
   sendMsg({
-    t: 'throw',
+    t: 'throw', to: target.peer, toName: target.name, at: Date.now(),
     delay: 1 + Math.random() * 2.2,          // 隨機過一段時間鴨子才出現
     trick: trick.map((x) => x.id),
     ts: trickState, hi: WIN_HI, lo: WIN_LO, streak,
   });
-  setButton(`等 ${partner ? partner.name : '朋友'} 接…`, false);
+  setButton(`等 ${target.name} 接…`, false);
+  if (roomKind === 'multi') toast(`拋給了 ${target.name}！`);
 }
-function sendResult(ok) { sendMsg({ t: 'result', ok, streak }); }
+function sendResult(ok) { currentThrower = myPeer; sendMsg({ t: 'result', ok, streak, at: Date.now() }); }
 function num(v, d) { return typeof v === 'number' && isFinite(v) ? v : d; }
-function handleMsg(msg) {
+function handleMsg(msg, from) {
+  if (msg.t === 'start') {
+    if (!started) beginGame(from);
+    return;
+  }
   if (msg.t === 'throw') {
+    currentThrower = from;
+    const forMe = roomKind === 'duo' || !msg.to || msg.to === myPeer;
+    if (!forMe) {
+      // 不是丟給我：看熱鬧
+      toast(`${nameOf(from)} 拋給了 ${String(msg.toName || nameOf(msg.to)).slice(0, 10)}！`);
+      sfx.whooshIn();
+      return;
+    }
     audio();
     resetLooks();
     role = 'catcher';
@@ -908,17 +960,19 @@ function handleMsg(msg) {
     speedMul = 1; vel = 0; smallY = 6.5; smallZ = HOLD_Z; wingsClosed = false;
     setState('wait'); waitFor = Math.min(Math.max(num(msg.delay, 1.5), 0.5), 4);
     setButton('接住！');
-    toast(`${partner ? partner.name : '朋友'} 拋鴨了！`);
-    sfx.whooshIn();
+    toast(roomKind === 'multi' ? `${nameOf(from)} 拋給你了！` : `${nameOf(from)} 拋鴨了！`);
+    sfx.whooshIn(); hap.ding();
   } else if (msg.t === 'result') {
+    currentThrower = from;
     streak = Math.max(0, Math.floor(num(msg.streak, 0)));
     if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
     updateScore();
-    toast(msg.ok ? `${partner ? partner.name : '朋友'} 收到鴨！` : `${partner ? partner.name : '朋友'} 沒接到…`, msg.ok ? 'party' : null);
+    toast(msg.ok ? `${nameOf(from)} 收到鴨！` : `${nameOf(from)} 沒接到…`, msg.ok ? 'party' : null);
     if (msg.ok) { sfx.catchSound(streak); quack(0.3, 1.1, 0.35, 0.15); hap.caught(); } else { sfx.sadTrombone(0); hap.sad(); }
-    role = 'catcher';
-    setState('await');
-    setButton('換你接！等朋友拋鴨…', false);
+    pendingTarget = null;
+    becomeWaiter(null);
+    if (roomKind === 'duo') setButton('換你接！等朋友拋鴨…', false);
+    else setButton(`換 ${nameOf(from)} 拋鴨…`, false);
   }
 }
 
@@ -938,7 +992,7 @@ async function share(text, url) {
   catch (e) { toast('請複製網址分享給朋友'); }
 }
 function offerSubmit(score) {
-  if (score < 1) return;
+  if (score < 1 || mode === 'multi') return; // 多人派對不登記排行榜
   // 雙人模式只由沒接到的那一方登記一次，避免重複
   pendingScore = score;
   pendingMode = mode;
@@ -1083,7 +1137,6 @@ function updateBubble() {
 const clock = new THREE.Clock();
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
-  furAutoQuality(dt);
   const t = clock.elapsedTime;
   stateT = window.__pauseT != null ? window.__pauseT : stateT + dt; // __pauseT 只給自動測試用
 
@@ -1128,7 +1181,7 @@ function animate() {
     }
     if (smallY > 6.5 && tossReleased) {
       wingDY = 0; wingLift = 0;
-      if (mode === 'duo') { setState('sent'); sendThrow(); }
+      if (mode !== 'solo') { setState('sent'); sendThrow(); }
       else {
         setState('wait'); waitFor = 0.6 + Math.random() * 1.2; wingsClosed = false; vel = 0;
         pickTrick();
@@ -1200,7 +1253,7 @@ function animate() {
       say('收到鴨！', 1.7, 1.15, 180);
     }
     if (stateT > 1.0 && actionBtn.disabled) {
-      if (mode === 'duo') { if (!resultSent) { resultSent = true; sendResult(true); role = 'thrower'; } setButton('拋出鴨！', true, 'duck'); }
+      if (mode !== 'solo') { if (!resultSent) { resultSent = true; sendResult(true); role = 'thrower'; } setButton('拋出鴨！', true, 'duck'); }
       else setButton('再接一隻', true, 'chick');
     }
     if (stateT > 2.4) hideBubble();
@@ -1216,7 +1269,7 @@ function animate() {
     }
     if (stateT > 1.4 && actionBtn.disabled) {
       offerSubmit(lastScore);
-      if (mode === 'duo') { if (!resultSent) { resultSent = true; sendResult(false); role = 'thrower'; } setButton('拋出鴨！', true, 'duck'); }
+      if (mode !== 'solo') { if (!resultSent) { resultSent = true; sendResult(false); role = 'thrower'; } setButton('拋出鴨！', true, 'duck'); }
       else setButton('再來一次');
     }
   } else { // idle

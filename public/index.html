@@ -93,6 +93,13 @@
   @keyframes achvIn { to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
   @keyframes achvBlink { from { filter: brightness(1); box-shadow: 0 5px 0 #1b1b1b, 0 0 0 0 rgba(255,213,106,0); }
                          to { filter: brightness(1.18); box-shadow: 0 5px 0 #1b1b1b, 0 0 0 10px rgba(255,213,106,.55); } }
+  .action { white-space: nowrap; }
+  .action:disabled { font-size: 17px; letter-spacing: 0; }
+  #roomJoin.hidden { display: none !important; }
+  .lobby { list-style: none; margin: 0; padding: 0; max-height: 34vh; overflow: auto; text-align: left; }
+  .lobby li { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px dashed #d8cfbf; font-size: 15px; font-weight: 700; color: #1b1b1b; }
+  .lobby .ic { margin: 0; }
+  #startBtn:disabled { background: #efe4cf; color: #8a8072; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 15px; }
 </style>
 <script type="importmap">
@@ -115,14 +122,19 @@
   <input id="nameIn" maxlength="10" placeholder="輸入你的名字" autocomplete="off">
   <button class="big" id="soloBtn"><span data-ic="chick" data-size="30"></span>單人模式</button>
   <button class="big" id="duoBtn"><span data-ic="duo" data-size="30"></span>雙人連線</button>
+  <button class="big" id="multiBtn"><span data-ic="party" data-size="30"></span>多人派對</button>
   <button id="boardBtn"><span data-ic="trophy"></span>排行榜</button>
   <button id="dexBtn"><span data-ic="book"></span>鴨子圖鑑</button>
 </div>
 <div class="panel hidden" id="duo">
-  <h2>雙人連線</h2>
-  <button class="big" id="createBtn">建立房間</button>
-  <div class="row"><input id="codeIn" inputmode="numeric" maxlength="4" placeholder="房間號碼" autocomplete="off"><button id="joinBtn">加入</button></div>
+  <h2 id="duoTitle">雙人連線</h2>
+  <div id="roomJoin" style="display:flex;flex-direction:column;gap:12px">
+    <button class="big" id="createBtn">建立房間</button>
+    <div class="row"><input id="codeIn" inputmode="numeric" maxlength="4" placeholder="房間號碼" autocomplete="off"><button id="joinBtn">加入</button></div>
+  </div>
   <div class="msg" id="duoMsg"></div>
+  <ul class="lobby hidden" id="lobby"></ul>
+  <button class="big hidden" id="startBtn">開始派對</button>
   <button class="hidden" id="inviteBtn"><span data-ic="send"></span>傳邀請連結給朋友</button>
   <button class="link" id="backBtn">← 返回</button>
 </div>
