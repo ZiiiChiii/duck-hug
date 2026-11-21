@@ -1282,6 +1282,7 @@ let mode = 'solo';                        // solo / duo
 let role = null;                          // 雙人：thrower 拋鴨的人 / catcher 接鴨的人
 let resultSent = false;
 let lastScore = 0;
+let runBest = 0;                           // 這一局（被彈起救回而中斷前）最長的連續紀錄，送排行榜用
 let revealDone = false;
 let decoy = false;                       // 多人派對：這一輪鴨子不是飛給我（但我自己不知道）
 let emptyPresses = [], tired = 0;        // 連續空按 → 手好酸鴨
@@ -1427,14 +1428,19 @@ function tryCatch() {
         sfx.stopFall();
         smallY = CATCH_Y; vel = 0; small.visible = true;
         squeeze = 1;
-        streak++;
+        const rescued = !!trickState.rebound;           // 稀有鴨掉地上彈起來後的第二次接住
+        if (rescued) { runBest = Math.max(runBest, streak); streak = 1; }  // 算接住、遊戲繼續，但連續重新算
+        else streak++;
         if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
         updateScore();
-        const firsts = recordCaught(trick);
-        const reward = coinReward(trick);
+        const firsts = rescued ? [] : recordCaught(trick);
+        const bonus = streak % 5 === 0 ? 1 : 0;        // 連續 5 的倍數：多 1 枚
+        const reward = (rescued ? 1 : coinReward(trick)) + bonus;
         addCoins(reward); setTimeout(() => sfx.coin(), 260); if (reward > 1) setTimeout(() => sfx.coin(), 420); buddiesCheer();
-        if (firsts.length || streak % 5 === 0) { sfx.fanfare(); hap.big(); } else { sfx.catchSound(streak); hap.caught(); }
+        if (firsts.length || bonus) { sfx.fanfare(); hap.big(); } else { sfx.catchSound(streak); hap.caught(); }
         if (firsts.length) firsts.forEach((tr) => achieve(`成功接住${tr.name.replace('！', '')}`));
+        else if (rescued) toast('救回來了！連續重新計算');
+        else if (bonus) toast(`連續 ${streak} 隻！多送 1 枚鴨幣`);
         else toast(streak >= 3 ? `接得好！連續 ${streak} 隻` : '接得好！');
 
         setButton('…', false);
@@ -1517,7 +1523,7 @@ function myName() { return (nameIn.value || '').trim().slice(0, 10) || '玩家';
 const nameOf = (peer) => (peer === myPeer ? myName() : (players.find((x) => x.peer === peer) || {}).name || '朋友');
 function openMenu() {
   leaveRoom();
-  mode = 'solo'; role = null; streak = 0; loadBest(); updateScore();
+  mode = 'solo'; role = null; streak = 0; runBest = 0; loadBest(); updateScore();
   resetLooks(); setState('idle'); smallY = CATCH_Y; smallZ = HOLD_Z;
   show(menuEl, true); show(duoEl, false); show(actionBtn, false); show(roomEl, false);
   show(boardEl, false); show(submitEl, false); show(document.getElementById('inviteBtn'), false);
@@ -1530,7 +1536,7 @@ function leaveRoom() {
   clearTimeout(lostTimer); lostTimer = null;
 }
 document.getElementById('soloBtn').addEventListener('click', () => {
-  mode = 'solo'; streak = 0; loadBest(); updateScore();
+  mode = 'solo'; streak = 0; runBest = 0; loadBest(); updateScore();
   show(menuEl, false); show(actionBtn, true);
   setButton('開始遊戲');
 });
@@ -1628,7 +1634,7 @@ startBtn.addEventListener('click', () => {
 function beginGame(first) {
   started = true;
   show(lobbyEl, false); show(startBtn, false);
-  mode = roomKind; streak = 0; loadBest(); updateScore();
+  mode = roomKind; streak = 0; runBest = 0; loadBest(); updateScore();
   show(duoEl, false); show(actionBtn, true); show(roomEl, true);
   drawRoomLine();
   resetLooks(); smallZ = HOLD_Z;
@@ -2300,6 +2306,12 @@ function animate() {
   } else if (state === 'fall') {
     const ts = trickState;
     let relNow = smallY - CATCH_Y;
+    if (ts.rebound) {
+      // 稀有鴨彈起來：單純往上彈再落下，回到大鴨手的前面
+      vel = Math.min(vel + 9 * dt, 8);
+      smallY -= vel * dt;
+      if (vel < 0) smallZ += (HOLD_Z - smallZ) * Math.min(1, dt * 6);
+    } else
     // 飄浮：停在半空中拍翅膀
     if (has('hover') && !ts.hovered && relNow < ts.hoverAt) {
       ts.hoverT += dt; vel = 0;
@@ -2321,25 +2333,34 @@ function animate() {
     }
     relNow = smallY - CATCH_Y;
     // 搖擺：左右飄，越接近大鴨越回到中間
-    smallX = has('zigzag') ? Math.sin(stateT * ts.zigSpeed) * ts.zigAmp * THREE.MathUtils.clamp((relNow - 0.2) / 2.2, 0, 1) : 0;
+    smallX = ts.rebound ? smallX * Math.max(0, 1 - dt * 8) : has('zigzag') ? Math.sin(stateT * ts.zigSpeed) * ts.zigAmp * THREE.MathUtils.clamp((relNow - 0.2) / 2.2, 0, 1) : 0;
     // 隱形：一段時間看不見
-    const vis = !(has('vanish') && relNow < ts.vanishFrom && relNow > ts.vanishTo);
+    const vis = ts.rebound || !(has('vanish') && relNow < ts.vanishFrom && relNow > ts.vanishTo);
     if (vis !== small.visible) { if (vis) sfx.pop(); else sfx.poof(); hap.poof(); }
     small.visible = vis;
     sfx.setFall(relNow, has('zigzag') && relNow > 0.2, !vis);
     flail = 1;
     open = wingsClosed ? 0 : 1;
     const rel = smallY - CATCH_Y;
-    if (rel < winLo()) {
+    if (rel < winLo() && vel > 0) {
       // 沒接到：往前滑落到地上
       const k = THREE.MathUtils.clamp((winLo() - rel) / 0.4, 0, 1);
       smallZ = HOLD_Z + (GROUND_Z - HOLD_Z) * k;
       if (!wingsClosed) { wingsClosed = true; toast('太晚了！'); setButton('…', false); }
     }
-    if (smallY <= 0) {
+    if (smallY <= 0 && trick && trick.length && !ts.rebound) {
+      // 稀有鴨掉到地上 → 彈起來，給第二次機會
+      smallY = 0.001; small.visible = true;
+      ts.rebound = true; speedMul = 1;
+      vel = -6.2;                                   // 彈到大約 2 格高
+      wingsClosed = false; earlyCooldown = 0;
+      sfx.thud(); sfx.boing(); hap.hop();
+      toast('彈起來了！再接一次！');
+      setButton('接住！');
+    } else if (smallY <= 0) {
       smallY = 0; smallZ = GROUND_Z; small.visible = true;
       setState('miss');
-      lastScore = streak;
+      lastScore = Math.max(streak, runBest); runBest = 0;
       streak = 0; updateScore();
       sfx.stopFall(); sfx.thud(); sfx.sadTrombone(0.2); sob(); hap.miss();
 
