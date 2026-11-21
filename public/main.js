@@ -480,7 +480,7 @@ const actionBtn = document.getElementById('action');
 const toastEl = document.getElementById('toast');
 const scoreEl = document.getElementById('score');
 const CATCH_Y = SMALL_LIFT;              // 被抱住時小鴨的高度
-let WIN_HI = 0.55, WIN_LO = -0.3;        // 接住的時機範圍（相對 CATCH_Y），越後面越窄
+let WIN_HI = 0.8, WIN_LO = -0.45;        // 接住的時機範圍（相對 CATCH_Y），越後面越窄（已放寬）
 const HOLD_Z = 1.04, GROUND_Z = 1.62;
 let state = 'idle';                       // idle / toss / wait / fall / caught / miss
 let stateT = 0;
@@ -536,11 +536,31 @@ function pickTrick() {
     vanishFrom: r(2.4, 3.0), vanishTo: r(0.8, 1.1),
   };
   // 時機範圍隨連續次數變窄
-  WIN_HI = Math.max(0.55 - streak * 0.012, 0.36);
-  WIN_LO = Math.min(-0.3 + streak * 0.006, -0.2);
+  WIN_HI = Math.max(0.8 - streak * 0.01, 0.55);
+  WIN_LO = Math.min(-0.45 + streak * 0.005, -0.32);
   speedMul = 1;
 }
 const has = (id) => trick && trick.some((t) => t.id === id);
+
+// ---------- 鴨子圖鑑：遇過／接住過的特殊鴨子（存在這支手機裡） ----------
+const dex = { seen: [], caught: [] };
+try { Object.assign(dex, JSON.parse(localStorage.getItem('hugduck-dex') || '{}')); } catch (e) {}
+const saveDex = () => { try { localStorage.setItem('hugduck-dex', JSON.stringify(dex)); } catch (e) {} };
+function recordSeen(list) {
+  let changed = false;
+  for (const t of list || []) if (!dex.seen.includes(t.id)) { dex.seen.push(t.id); changed = true; }
+  if (changed) saveDex();
+}
+// 回傳「第一次接住」的種類（成就只出現一次）
+function recordCaught(list) {
+  const firsts = [];
+  for (const t of list || []) {
+    if (!dex.seen.includes(t.id)) dex.seen.push(t.id);
+    if (!dex.caught.includes(t.id)) { dex.caught.push(t.id); firsts.push(t); }
+  }
+  if (firsts.length) saveDex();
+  return firsts;
+}
 
 function setState(s) {
   if (s !== 'fall') sfx.stopFall();
@@ -613,9 +633,9 @@ function tryCatch() {
         streak++;
         if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
         updateScore();
-        const unlocked = TRICKS.find((tr) => tr.unlock === streak);
-        if (unlocked || streak % 5 === 0) { sfx.fanfare(); hap.big(); } else { sfx.catchSound(streak); hap.caught(); }
-        if (unlocked) toast(`新花招：${unlocked.name.replace('！', '')}（${unlocked.tip}）`, 'unlock');
+        const firsts = recordCaught(trick);
+        if (firsts.length || streak % 5 === 0) { sfx.fanfare(); hap.big(); } else { sfx.catchSound(streak); hap.caught(); }
+        if (firsts.length) firsts.forEach((tr) => achieve(`成功接住${tr.name.replace('！', '')}`));
         else toast(streak >= 3 ? `接得好！連續 ${streak} 隻` : '接得好！');
 
         setButton('…', false);
@@ -677,6 +697,7 @@ function openMenu() {
   resetLooks(); setState('idle'); smallY = CATCH_Y; smallZ = HOLD_Z;
   show(menuEl, true); show(duoEl, false); show(actionBtn, false); show(roomEl, false);
   show(boardEl, false); show(submitEl, false); show(document.getElementById('inviteBtn'), false);
+  show(document.getElementById('dex'), false);
 }
 function leaveRoom() {
   if (net && roomCode) net.presence({ code: null, msg: null, name: null, host: null }).catch(() => {});
@@ -808,8 +829,8 @@ function handleMsg(msg) {
       zigAmp: Math.min(num(ts.zigAmp, 0.5), 0.8), zigSpeed: num(ts.zigSpeed, 6),
       vanishFrom: num(ts.vanishFrom, 2.6), vanishTo: Math.max(num(ts.vanishTo, 1), 0.7),
     };
-    WIN_HI = Math.min(Math.max(num(msg.hi, 0.55), 0.3), 0.6);
-    WIN_LO = Math.min(Math.max(num(msg.lo, -0.3), -0.35), -0.15);
+    WIN_HI = Math.min(Math.max(num(msg.hi, 0.8), 0.5), 0.85);
+    WIN_LO = Math.min(Math.max(num(msg.lo, -0.45), -0.5), -0.3);
     streak = Math.max(0, Math.floor(num(msg.streak, 0))); updateScore();
     speedMul = 1; vel = 0; smallY = 6.5; smallZ = HOLD_Z; wingsClosed = false;
     setState('wait'); waitFor = Math.min(Math.max(num(msg.delay, 1.5), 0.5), 4);
@@ -892,6 +913,43 @@ document.getElementById('inviteBtn').addEventListener('click', () => {
   share(`來跟我一起玩「抱抱鴨」！房間號碼 ${roomCode}`, `${gameUrl()}?room=${roomCode}`);
 });
 nameIn.addEventListener('change', () => { try { localStorage.setItem('hugduck-name', myName()); } catch (e) {} });
+
+// ---------- 成就（閃爍一下，只出現一次） ----------
+const achvEl = document.getElementById('achv');
+const achvQueue = [];
+let achvBusy = false;
+function achieve(text) { achvQueue.push(text); if (!achvBusy) nextAchv(); }
+function nextAchv() {
+  const text = achvQueue.shift();
+  if (!text) { achvBusy = false; return; }
+  achvBusy = true;
+  achvEl.innerHTML = `${icon('star', 34)}<div><small>成就解鎖</small><b></b></div>`;
+  achvEl.querySelector('b').textContent = text;
+  achvEl.classList.remove('show'); void achvEl.offsetWidth; achvEl.classList.add('show');
+  setTimeout(() => { achvEl.classList.remove('show'); setTimeout(nextAchv, 350); }, 2900);
+}
+
+// ---------- 鴨子圖鑑頁 ----------
+const dexEl = document.getElementById('dex');
+const dexList = document.getElementById('dexList');
+function openDex() {
+  show(menuEl, false); show(dexEl, true); show(actionBtn, false); show(submitEl, false);
+  dexList.textContent = '';
+  const seenCount = TRICKS.filter((t) => dex.seen.includes(t.id)).length;
+  document.getElementById('dexCount').textContent = `已遇過 ${seenCount} / ${TRICKS.length} 種`;
+  for (const t of TRICKS) {
+    const seen = dex.seen.includes(t.id), got = dex.caught.includes(t.id);
+    const li = document.createElement('li');
+    li.className = seen ? (got ? 'got' : 'seen') : 'unknown';
+    li.innerHTML = `<span class="dx-ic">${icon('chick', 30)}</span><span class="dx-tx"><b></b><small></small></span><span class="dx-st"></span>`;
+    li.querySelector('b').textContent = seen ? t.name.replace('！', '') : '？？？';
+    li.querySelector('small').textContent = seen ? t.tip : '還沒遇過';
+    li.querySelector('.dx-st').innerHTML = got ? `${icon('star', 18)}已接住` : seen ? '還沒接住' : '';
+    dexList.appendChild(li);
+  }
+}
+document.getElementById('dexBtn').addEventListener('click', openDex);
+document.getElementById('dexBack').addEventListener('click', openMenu);
 
 openMenu();
 // 從邀請連結進來：直接打開雙人頁、填好房號
@@ -1000,7 +1058,6 @@ function animate() {
       else {
         setState('wait'); waitFor = 0.6 + Math.random() * 1.2; wingsClosed = false; vel = 0;
         pickTrick();
-        if (trick.length) toast(trick.map((t) => t.name).join(' + '), 'warning');
       }
     }
   } else if (state === 'sent' || state === 'await') { // 雙人：鴨子在朋友那邊
@@ -1010,7 +1067,7 @@ function animate() {
     if (stateT > waitFor) {
       setState('fall');
       sfx.startFall();
-      if (mode === 'duo' && trick.length) toast(trick.map((t) => t.name).join(' + '), 'warning');
+      recordSeen(trick);
     }
   } else if (state === 'fall') {
     const ts = trickState;
@@ -1169,4 +1226,4 @@ document.getElementById('loading').remove();
 animate();
 
 // 測試用：讓自動測試讀得到遊戲狀態
-window.__duck = { get state() { return state; }, get rel() { return smallY - CATCH_Y; }, get vel() { return vel; }, setStreak(n) { streak = n; updateScore(); }, get trick() { return trick && trick.map((t) => t.id); } };
+window.__duck = { get dex() { return dex; }, get state() { return state; }, get rel() { return smallY - CATCH_Y; }, get vel() { return vel; }, setStreak(n) { streak = n; updateScore(); }, get trick() { return trick && trick.map((t) => t.id); } };

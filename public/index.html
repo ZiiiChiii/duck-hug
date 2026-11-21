@@ -72,6 +72,24 @@
   .mute-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px 7px; }
   .mute-btn .ic { margin: 0; }
   .list .rk .ic { vertical-align: middle; margin: 0; }
+  .dexlist { list-style: none; margin: 0; padding: 0; max-height: 52vh; overflow: auto; text-align: left; }
+  .dexlist li { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px dashed #d8cfbf; color: #1b1b1b; }
+  .dexlist .dx-tx { flex: 1; display: flex; flex-direction: column; }
+  .dexlist .dx-tx b { font-size: 16px; } .dexlist .dx-tx small { font-size: 12.5px; color: #6b6255; }
+  .dexlist .dx-st { font-size: 12.5px; font-weight: 800; white-space: nowrap; display: inline-flex; align-items: center; gap: 2px; color: #8a6a1f; }
+  .dexlist li.seen .dx-st { color: #8a8072; }
+  .dexlist li.unknown .dx-ic { filter: grayscale(1) brightness(.6); opacity: .45; }
+  .dexlist li.unknown b { color: #8a8072; letter-spacing: 2px; }
+  .achv { position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 118px); transform: translate(-50%, -30px) scale(.8); opacity: 0;
+          display: flex; align-items: center; gap: 10px; padding: 10px 18px 10px 12px; pointer-events: none; white-space: nowrap;
+          background: linear-gradient(180deg, #fff3c4, #ffd56a); border: 3px solid #1b1b1b; border-radius: 18px; box-shadow: 0 5px 0 #1b1b1b; color: #1b1b1b; z-index: 5; }
+  .achv small { display: block; font-size: 12px; font-weight: 800; color: #8a5a00; letter-spacing: 2px; }
+  .achv b { display: block; font-size: 19px; font-weight: 900; }
+  .achv .ic { margin: 0; }
+  .achv.show { animation: achvIn .4s cubic-bezier(.3,1.6,.5,1) forwards, achvBlink .3s ease-in-out .45s 4 alternate; }
+  @keyframes achvIn { to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+  @keyframes achvBlink { from { filter: brightness(1); box-shadow: 0 5px 0 #1b1b1b, 0 0 0 0 rgba(255,213,106,0); }
+                         to { filter: brightness(1.18); box-shadow: 0 5px 0 #1b1b1b, 0 0 0 10px rgba(255,213,106,.55); } }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 15px; }
 </style>
 <script type="importmap">
@@ -95,6 +113,7 @@
   <button class="big" id="soloBtn"><span data-ic="chick" data-size="30"></span>單人模式</button>
   <button class="big" id="duoBtn"><span data-ic="duo" data-size="30"></span>雙人連線</button>
   <button id="boardBtn"><span data-ic="trophy"></span>排行榜</button>
+  <button id="dexBtn"><span data-ic="book"></span>鴨子圖鑑</button>
 </div>
 <div class="panel hidden" id="duo">
   <h2>雙人連線</h2>
@@ -111,6 +130,13 @@
   <button id="boardShare"><span data-ic="send"></span>分享給朋友</button>
   <button class="link" id="boardBack">← 返回</button>
 </div>
+<div class="panel hidden" id="dex">
+  <h2><span data-ic="book" data-size="26"></span>鴨子圖鑑</h2>
+  <div class="msg" id="dexCount"></div>
+  <ul class="dexlist" id="dexList"></ul>
+  <button class="link" id="dexBack">← 返回</button>
+</div>
+<div class="achv" id="achv"></div>
 <div class="card hidden" id="submit">
   <div class="msg" id="submitText"></div>
   <div class="row"><button class="big" id="submitBtn">登記成績</button><button id="shareScoreBtn"><span data-ic="send" data-size="18"></span>分享</button></div>
