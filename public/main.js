@@ -4,6 +4,9 @@ import { mergeVertices } from './vendor/BufferGeometryUtils.js';
 import { hasServer, serverRoom, submitScore, topScores } from './net.js';
 import * as sfx from './sfx.js';
 import * as hap from './haptics.js';
+import { icon, setLabel, fillIcons, setFavicon } from './icons.js';
+fillIcons();
+setFavicon();
 
 // ---------- 基本場景 ----------
 const BG = 0xefebe4;
@@ -523,11 +526,11 @@ function pickTrick() {
 const has = (id) => trick && trick.some((t) => t.id === id);
 
 function setState(s) { if (s !== 'fall') sfx.stopFall(); state = s; stateT = 0; spoke = false; }
-function setButton(text, enabled = true) { actionBtn.textContent = text; actionBtn.disabled = !enabled; }
+function setButton(text, enabled = true, ic = null) { setLabel(actionBtn, text, ic, { size: 26 }); actionBtn.disabled = !enabled; }
 function updateScore() { scoreEl.textContent = `${mode === 'duo' ? '雙人合作 ' : ''}連續接住 ${streak} 隻　最佳 ${best} 隻`; }
 let toastTimer;
-function toast(text) {
-  toastEl.textContent = text;
+function toast(text, ic = null) {
+  setLabel(toastEl, text, ic, { size: 30 });
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1200);
@@ -592,7 +595,7 @@ function tryCatch() {
         updateScore();
         const unlocked = TRICKS.find((tr) => tr.unlock === streak);
         if (unlocked || streak % 5 === 0) { sfx.fanfare(); hap.big(); } else { sfx.catchSound(streak); hap.caught(); }
-        if (unlocked) toast(`🔓 新花招：${unlocked.name.replace('！', '')}（${unlocked.tip}）`);
+        if (unlocked) toast(`新花招：${unlocked.name.replace('！', '')}（${unlocked.tip}）`, 'unlock');
         else toast(streak >= 3 ? `接得好！連續 ${streak} 隻` : '接得好！');
 
         setButton('…', false);
@@ -611,11 +614,11 @@ document.addEventListener('pointerdown', (e) => {
   if (b && !b.disabled) { audio(); sfx.click(); hap.tap(); }
 }, true);
 const muteBtn = document.getElementById('muteBtn');
-const drawMute = () => { muteBtn.textContent = sfx.isMuted() ? '🔇' : '🔊'; };
+const drawMute = () => { muteBtn.innerHTML = icon(sfx.isMuted() ? 'mute' : 'sound', 20); };
 drawMute();
 hap.setShakeTarget(renderer.domElement);
 const hapBtn = document.getElementById('hapBtn');
-const drawHap = () => { hapBtn.textContent = hap.isOn() ? '📳' : '📴'; };
+const drawHap = () => { hapBtn.innerHTML = icon(hap.isOn() ? 'vibrate' : 'vibrateOff', 20); };
 if (!hap.supported()) hapBtn.classList.add('hidden');
 drawHap();
 hapBtn.addEventListener('click', (e) => { e.stopPropagation(); hap.setOn(!hap.isOn()); drawHap(); if (hap.isOn()) hap.caught(); });
@@ -723,7 +726,7 @@ function startDuo() {
   resetLooks(); smallZ = HOLD_Z;
   if (isHost) {
     role = 'thrower'; smallY = CATCH_Y; setState('idle');
-    setButton('拋出鴨！ 🦆');
+    setButton('拋出鴨！', true, 'duck');
     toast(`${partner.name} 加入了！你先拋鴨`);
     sfx.dingDong(); hap.ding();
   } else {
@@ -797,7 +800,7 @@ function handleMsg(msg) {
     streak = Math.max(0, Math.floor(num(msg.streak, 0)));
     if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
     updateScore();
-    toast(msg.ok ? `${partner ? partner.name : '朋友'} 收到鴨！🎉` : `${partner ? partner.name : '朋友'} 沒接到…`);
+    toast(msg.ok ? `${partner ? partner.name : '朋友'} 收到鴨！` : `${partner ? partner.name : '朋友'} 沒接到…`, msg.ok ? 'party' : null);
     if (msg.ok) { sfx.catchSound(streak); quack(0.3, 1.1, 0.35, 0.15); hap.caught(); } else { sfx.sadTrombone(0); hap.sad(); }
     role = 'catcher';
     setState('await');
@@ -853,7 +856,7 @@ async function openBoard() {
   boardList.textContent = '';
   rows.forEach((r, i) => {
     const li = document.createElement('li');
-    const rank = document.createElement('span'); rank.className = 'rk'; rank.textContent = ['🥇', '🥈', '🥉'][i] || String(i + 1);
+    const rank = document.createElement('span'); rank.className = 'rk'; if (i < 3) rank.innerHTML = icon(['gold', 'silver', 'bronze'][i], 26); else rank.textContent = String(i + 1);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.name;
     const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = `${r.score} 隻`;
     li.append(rank, nm, sc);
@@ -950,7 +953,7 @@ function animate() {
       else {
         setState('wait'); waitFor = 0.6 + Math.random() * 1.2; wingsClosed = false; vel = 0;
         pickTrick();
-        if (trick.length) toast('⚠️ ' + trick.map((t) => t.name).join(' + '));
+        if (trick.length) toast(trick.map((t) => t.name).join(' + '), 'warning');
       }
     }
   } else if (state === 'sent' || state === 'await') { // 雙人：鴨子在朋友那邊
@@ -960,7 +963,7 @@ function animate() {
     if (stateT > waitFor) {
       setState('fall');
       sfx.startFall();
-      if (mode === 'duo' && trick.length) toast('⚠️ ' + trick.map((t) => t.name).join(' + '));
+      if (mode === 'duo' && trick.length) toast(trick.map((t) => t.name).join(' + '), 'warning');
     }
   } else if (state === 'fall') {
     const ts = trickState;
@@ -1019,8 +1022,8 @@ function animate() {
       say('收到鴨！', 1.7, 1.15, 180);
     }
     if (stateT > 1.0 && actionBtn.disabled) {
-      if (mode === 'duo') { if (!resultSent) { resultSent = true; sendResult(true); role = 'thrower'; } setButton('拋出鴨！ 🦆'); }
-      else setButton('再接一隻 🐣');
+      if (mode === 'duo') { if (!resultSent) { resultSent = true; sendResult(true); role = 'thrower'; } setButton('拋出鴨！', true, 'duck'); }
+      else setButton('再接一隻', true, 'chick');
     }
     if (stateT > 2.4) hideBubble();
   } else if (state === 'miss') {
@@ -1035,7 +1038,7 @@ function animate() {
     }
     if (stateT > 1.4 && actionBtn.disabled) {
       offerSubmit(lastScore);
-      if (mode === 'duo') { if (!resultSent) { resultSent = true; sendResult(false); role = 'thrower'; } setButton('拋出鴨！ 🦆'); }
+      if (mode === 'duo') { if (!resultSent) { resultSent = true; sendResult(false); role = 'thrower'; } setButton('拋出鴨！', true, 'duck'); }
       else setButton('再來一次');
     }
   } else { // idle

@@ -6,7 +6,6 @@
 <meta name="theme-color" content="#efebe4">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>抱抱鴨 3D</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦆</text></svg>">
 <style>
   html, body { margin: 0; height: 100%; background: #efebe4; overflow: hidden; }
   body { font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; color: #5b5348; }
@@ -67,6 +66,12 @@
   .mute-btn { position: fixed; top: calc(env(safe-area-inset-top) + 14px); right: 12px; font-size: 16px; line-height: 1;
            background: rgba(255,255,255,.8); border: 2px solid #1b1b1b; border-radius: 999px; padding: 5px 9px; }
   .hap-btn { right: 58px; }
+  .ic { display: inline-block; vertical-align: -0.22em; flex: none; }
+  button .ic, h2 .ic, .toast .ic, .hint .ic { margin: 0 .3em; }
+  .panel button, .action, .card button, .menu-btn { display: inline-flex; align-items: center; justify-content: center; gap: 2px; }
+  .mute-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px 7px; }
+  .mute-btn .ic { margin: 0; }
+  .list .rk .ic { vertical-align: middle; margin: 0; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 15px; }
 </style>
 <script type="importmap">
@@ -81,37 +86,37 @@
 <div class="score" id="score"></div>
 <button class="action" id="action">開始遊戲</button>
 <div class="room hidden" id="room"></div>
-<button class="menu-btn" id="menuBtn">☰ 選單</button>
-<button class="mute-btn" id="muteBtn" aria-label="音效開關">🔊</button>
-<button class="mute-btn hap-btn" id="hapBtn" aria-label="震動開關">📳</button>
+<button class="menu-btn" id="menuBtn"><span data-ic="menu" data-size="18"></span>選單</button>
+<button class="mute-btn" id="muteBtn" aria-label="音效開關"></button>
+<button class="mute-btn hap-btn" id="hapBtn" aria-label="震動開關"></button>
 <div class="panel" id="menu">
   <h2>抱抱鴨・接住小鴨</h2>
   <input id="nameIn" maxlength="10" placeholder="輸入你的名字" autocomplete="off">
-  <button class="big" id="soloBtn">🐥 單人模式</button>
-  <button class="big" id="duoBtn">👫 雙人連線</button>
-  <button id="boardBtn">🏆 排行榜</button>
+  <button class="big" id="soloBtn"><span data-ic="chick" data-size="30"></span>單人模式</button>
+  <button class="big" id="duoBtn"><span data-ic="duo" data-size="30"></span>雙人連線</button>
+  <button id="boardBtn"><span data-ic="trophy"></span>排行榜</button>
 </div>
 <div class="panel hidden" id="duo">
   <h2>雙人連線</h2>
   <button class="big" id="createBtn">建立房間</button>
   <div class="row"><input id="codeIn" inputmode="numeric" maxlength="4" placeholder="房間號碼" autocomplete="off"><button id="joinBtn">加入</button></div>
   <div class="msg" id="duoMsg"></div>
-  <button class="hidden" id="inviteBtn">📨 傳邀請連結給朋友</button>
+  <button class="hidden" id="inviteBtn"><span data-ic="send"></span>傳邀請連結給朋友</button>
   <button class="link" id="backBtn">← 返回</button>
 </div>
 <div class="panel hidden" id="board">
-  <h2>🏆 排行榜</h2>
+  <h2><span data-ic="trophy" data-size="26"></span>排行榜</h2>
   <div class="tabs"><button class="tab on" data-m="solo">單人</button><button class="tab" data-m="duo">雙人合作</button></div>
   <ol class="list" id="boardList"></ol>
-  <button id="boardShare">📨 分享給朋友</button>
+  <button id="boardShare"><span data-ic="send"></span>分享給朋友</button>
   <button class="link" id="boardBack">← 返回</button>
 </div>
 <div class="card hidden" id="submit">
   <div class="msg" id="submitText"></div>
-  <div class="row"><button class="big" id="submitBtn">登記成績</button><button id="shareScoreBtn">分享</button></div>
+  <div class="row"><button class="big" id="submitBtn">登記成績</button><button id="shareScoreBtn"><span data-ic="send" data-size="18"></span>分享</button></div>
   <button class="link" id="skipBtn">不用了</button>
 </div>
-<div class="hint" id="hint">小鴨掉下來時，看準時機按「接住！」🔊</div>
+<div class="hint" id="hint">小鴨掉下來時，看準時機按「接住！」<span data-ic="sound" data-size="16"></span></div>
 <script type="module" src="./main.js"></script>
 </body>
 </html>
