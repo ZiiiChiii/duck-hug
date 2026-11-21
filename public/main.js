@@ -297,7 +297,7 @@ function smallDuck(bodyMat = WHITE) {
 const big = bigDuck();
 big.position.set(0, 0, -0.2);
 big.rotation.y = 0;
-const small = smallDuck();
+let small = smallDuck(); // 會被換成買來的夥伴小鴨，所以用 let
 small.scale.setScalar(0.74); // 約大鴨的 1/2 高、1/4 大小
 const SMALL_LIFT = 0.36; // 被抱起來、腳離地
 small.position.set(0, SMALL_LIFT, 1.04);
@@ -437,28 +437,55 @@ const BUDDIES = {
     const lf = blob(M.green, 0.16, 0.05, 0.08); lf.position.set(0.05, 1.6, 0); lf.rotation.z = 0.5; d.userData.body.add(lf);
     const stem = shape(CYL, M.green, 0.015, 0.1, 0.015, false); stem.position.set(0, 1.56, 0); d.userData.body.add(stem); return d; },
   grey: () => smallDuck(M.greyBody),
+  white: () => smallDuck(WHITE), // 原本那隻小白鴨
 };
-const BUDDY_SLOTS = [[-1.35, -0.55], [-0.85, -1.4], [-1.85, -1.25], [-0.25, -2.1], [-2.25, -0.35], [-1.4, -2.4]]; // 右後方留給去換衣間的路
+// 每隻小鴨都有自己固定的位置（被抱走時位置空著，回來時站回原位）
+const BUDDY_SLOTS = [[-1.35, -0.55], [-0.85, -1.4], [-1.85, -1.25], [-0.25, -2.1], [-2.25, -0.35], [-1.4, -2.4], [-2.6, -1.7]]; // 右後方留給去換衣間的路
 const buddyObjs = [];
+let heldId = 'white';                   // 現在抱在懷裡的是哪一隻
+let smallIds = [];                      // 擁有的小鴨（含原本的小白鴨），順序決定站位
+const slotOf = (id) => BUDDY_SLOTS[Math.max(0, smallIds.indexOf(id)) % BUDDY_SLOTS.length];
+const faceCenter = (x, z) => Math.atan2(0 - x, 0.6 - z);
+function makeBuddy(id) {
+  const d = BUDDIES[id]();
+  const [x, z] = slotOf(id);
+  d.scale.setScalar(0.5);
+  d.position.set(x, 0, z);
+  d.rotation.y = faceCenter(x, z);
+  d.userData.phase = smallIds.indexOf(id) * 1.3;
+  d.userData.id = id;
+  return d;
+}
 function placeBuddies(ids) {
+  smallIds = ['white', ...ids.filter((id) => BUDDIES[id] && id !== 'white')];
   for (const b of buddyObjs) scene.remove(b);
   buddyObjs.length = 0;
-  ids.filter((id) => BUDDIES[id]).forEach((id, i) => {
-    const slot = BUDDY_SLOTS[i % BUDDY_SLOTS.length];
-    const d = BUDDIES[id]();
-    d.scale.setScalar(0.5);
-    d.position.set(slot[0], 0, slot[1]);
-    d.rotation.y = Math.atan2(0 - slot[0], 0.6 - slot[1]);
-    d.userData.phase = i * 1.3;
+  for (const id of smallIds) {
+    if (id === heldId) continue;
+    const d = makeBuddy(id);
     scene.add(d);
     buddyObjs.push(d);
-  });
+  }
+}
+// 把懷裡的小鴨換成另一隻（直接換，沒有動畫）
+function setHeldDuck(id) {
+  const old = small;
+  const next = (BUDDIES[id] || BUDDIES.white)();
+  next.scale.setScalar(0.74);
+  next.position.copy(old.position);
+  next.rotation.copy(old.rotation);
+  next.visible = old.visible;
+  ducks.remove(old);
+  ducks.add(next);
+  small = next;
+  heldId = id;
 }
 let cheerT = 0;
 function buddiesCheer() { cheerT = 1; }
 function animateBuddies(t, dt) {
   cheerT = Math.max(0, cheerT - dt * 1.2);
   for (const d of buddyObjs) {
+    if (d.userData.busy) continue;
     const ph = d.userData.phase;
     const hop = cheerT > 0 ? Math.abs(Math.sin((1 - cheerT) * Math.PI * 3 + ph)) * 0.25 * cheerT : 0;
     d.position.y = hop;
@@ -552,6 +579,82 @@ function animateWardrobe(dt, t) {
   curtain.children.forEach((f, i) => { f.rotation.z = shake ? Math.sin(t * 22 + i) * 0.05 : 0; });
 }
 
+
+// ---------- 換抱另一隻小鴨：放下 → 兩隻搖搖晃晃走過去交換 → 抱起來 ----------
+const swap = { active: false, t: 0, open: 0, buddy: null, home: null, from: null, done: null, newId: null };
+const FRONT_SPOT = new THREE.Vector3(0, 0, 1.4);
+function startSwap(newId, done) {
+  const buddy = buddyObjs.find((b) => b.userData.id === newId);
+  if (!buddy || swap.active || wardrobe.active) return false;
+  const [hx, hz] = slotOf(heldId);
+  Object.assign(swap, {
+    active: true, t: 0, open: 1, buddy, newId, done,
+    home: new THREE.Vector3(hx, 0, hz),            // 懷裡那隻要回去的位置
+    from: buddy.position.clone(),                  // 被選中那隻原本站的位置
+    heldStart: small.position.clone(),
+  });
+  buddy.userData.busy = true;
+  controls.autoRotate = false;
+  return true;
+}
+function waddle(obj, from, to, k, t, baseScaleFrom, baseScaleTo) {
+  obj.position.lerpVectors(from, to, k);
+  obj.position.y = Math.abs(Math.sin(t * 12)) * 0.05 * obj.scale.x;
+  obj.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
+  obj.rotation.z = Math.sin(t * 12) * 0.12;
+  obj.scale.setScalar(baseScaleFrom + (baseScaleTo - baseScaleFrom) * k);
+}
+function animateSwap(dt, t) {
+  if (!swap.active) return;
+  swap.t += dt;
+  const w = swap.t, b = swap.buddy;
+  const DOWN = 0.6, WALK = 2.4, UP = 3.0;
+  const putDown = new THREE.Vector3(0, 0, 1.4);
+  if (w < DOWN) {                                   // 大鴨把懷裡的小鴨放到地上
+    const k = ease2(w / DOWN);
+    small.position.lerpVectors(swap.heldStart, putDown, k);
+    small.rotation.z = 0;
+    swap.open = k;
+  } else if (w < WALK) {                            // 兩隻搖搖晃晃走過去交換
+    const k = ease2((w - DOWN) / (WALK - DOWN));
+    swap.open = 1;
+    // 懷裡那隻：走回自己的位置（在大鴨的座標裡換算成場景位置）
+    small.position.lerpVectors(putDown, swap.home, k);
+    small.position.y = Math.abs(Math.sin(t * 12 + 1)) * 0.04;
+    small.rotation.y = Math.atan2(swap.home.x - putDown.x, swap.home.z - putDown.z);
+    small.rotation.z = Math.sin(t * 12 + 1) * 0.12;
+    small.scale.setScalar(0.74 - 0.24 * k);
+    waddle(b, swap.from, FRONT_SPOT, k, t, 0.5, 0.74);
+    if (Math.floor(w * 4) !== Math.floor((w - dt) * 4)) sfx.flap();
+  } else if (w < UP) {                              // 大鴨把新的小鴨抱起來
+    const k = ease2((w - WALK) / (UP - WALK));
+    small.position.copy(swap.home); small.rotation.set(0, faceCenter(swap.home.x, swap.home.z), 0); small.scale.setScalar(0.5);
+    b.position.set(0, CATCH_Y * k, FRONT_SPOT.z + (HOLD_Z - FRONT_SPOT.z) * k);
+    b.rotation.set(0, 0.12 * k + b.rotation.y * (1 - k), 0);
+    b.scale.setScalar(0.74);
+    swap.open = 1 - k;
+  } else {
+    // 交換身分：剛走回去的那隻變成站在後面的夥伴，新來的變成懷裡的小鴨
+    const oldHeld = small, oldId = heldId;
+    ducks.remove(oldHeld);
+    oldHeld.position.copy(swap.home); oldHeld.position.y = 0;
+    oldHeld.rotation.set(0, faceCenter(swap.home.x, swap.home.z), 0);
+    oldHeld.scale.setScalar(0.5);
+    oldHeld.userData.id = oldId; oldHeld.userData.phase = smallIds.indexOf(oldId) * 1.3; oldHeld.userData.busy = false;
+    scene.add(oldHeld);
+    buddyObjs.splice(buddyObjs.indexOf(b), 1, oldHeld);
+    scene.remove(b);
+    b.userData.busy = false;
+    b.scale.setScalar(0.74); b.rotation.set(0, 0.12, 0);
+    ducks.add(b);
+    small = b;
+    heldId = swap.newId;
+    smallY = CATCH_Y; smallZ = HOLD_Z; smallX = 0;
+    swap.active = false; swap.open = 0;
+    squeeze = 1; popHearts(); hap.caught(); quack(0, 1.3, 0.35, 0.12);
+    if (swap.done) swap.done();
+  }
+}
 
 // 愛心
 const heartTex = (() => {
@@ -1369,6 +1472,7 @@ const SHOP_ITEMS = [
   { id: 'chef', kind: 'big', name: '廚師帽', price: 100, ic: 'chef' },
   { id: 'wizard', kind: 'big', name: '魔法師帽', price: 150, ic: 'wizard' },
   { id: 'crown', kind: 'big', name: '國王皇冠', price: 200, ic: 'crown' },
+  { id: 'white', kind: 'small', name: '原本的小白鴨', price: 0, ic: 'chick-fdfcf8', free: true },
   { id: 'yellow', kind: 'small', name: '小黃鴨', price: 10, ic: 'chick-ffe27a' },
   { id: 'grey', kind: 'small', name: '小灰鴨', price: 12, ic: 'chick-c9c4bd' },
   { id: 'pink', kind: 'small', name: '蝴蝶結小粉鴨', price: 18, ic: 'chick-ffd0dc-bow' },
@@ -1380,6 +1484,8 @@ const SHOP_ITEMS = [
 shopState.owned = shopState.owned.filter((id) => SHOP_ITEMS.some((x) => x.id === id));
 if (!shopState.owned.includes(shopState.outfit)) shopState.outfit = null;
 wearOutfit(shopState.outfit);
+if (shopState.held && shopState.held !== 'white' && shopState.owned.includes(shopState.held)) setHeldDuck(shopState.held);
+else shopState.held = 'white';
 placeBuddies(shopState.owned.filter((id) => BUDDIES[id]));
 
 const shopEl = document.getElementById('shop');
@@ -1391,10 +1497,10 @@ function openShop() {
   document.getElementById('shopCoins').innerHTML = `${icon('coin', 26)}<b>${coins}</b> 鴨幣　<small>每接住 1 隻得 1 枚</small>`;
   document.getElementById('shopHint').textContent = shopTab === 'big'
     ? '大鴨會走進後面的換衣間換上新造型'
-    : '買到的小鴨會站在大鴨後面一起玩';
+    : '買到的小鴨會站在大鴨後面，按「抱抱牠」就換牠被抱著';
   shopList.textContent = '';
   for (const it of SHOP_ITEMS.filter((x) => x.kind === shopTab)) {
-    const owned = shopState.owned.includes(it.id);
+    const owned = it.free || shopState.owned.includes(it.id);
     const worn = shopState.outfit === it.id;
     const li = document.createElement('li');
     li.innerHTML = `<span class="sh-ic">${icon(it.ic, 46)}</span><span class="sh-tx"><b></b><small>${icon('coin', 16)}${it.price}</small></span>`;
@@ -1409,9 +1515,13 @@ function openShop() {
       btn.textContent = worn ? '脫下' : '穿上';
       btn.className = worn ? '' : 'buy';
       btn.onclick = () => changeOutfit(worn ? null : it.id);
-    } else {
-      btn.textContent = '已在身後';
+    } else if (heldId === it.id) {
+      btn.textContent = '抱著中';
       btn.disabled = true;
+    } else {
+      btn.textContent = '抱抱牠';
+      btn.className = 'buy';
+      btn.onclick = () => holdBuddy(it);
     }
     li.appendChild(btn);
     shopList.appendChild(li);
@@ -1430,6 +1540,16 @@ function buy(it) {
     sfx.pop(); hap.caught(); buddiesCheer();
     setTimeout(openShop, 1800);
   }
+}
+function holdBuddy(it) {
+  if (swap.active || wardrobe.active || heldId === it.id) return;
+  show(shopEl, false);
+  const ok = startSwap(it.id, () => {
+    shopState.held = it.id; saveShop();
+    toast(`換抱${it.name}了！`);
+    setTimeout(openShop, 1000);
+  });
+  if (!ok) openShop();
 }
 function changeOutfit(id) {
   if (wardrobe.active) return;
@@ -1501,6 +1621,7 @@ const clock = new THREE.Clock();
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   animateWardrobe(dt, clock.elapsedTime);
+  animateSwap(dt, clock.elapsedTime);
   animateBuddies(clock.elapsedTime, dt);
   const t = clock.elapsedTime;
   stateT = window.__pauseT != null ? window.__pauseT : stateT + dt; // __pauseT 只給自動測試用
@@ -1662,8 +1783,8 @@ function animate() {
   // 小鴨位置
   const holding = state === 'idle' || state === 'caught';
   if (state !== 'fall') { smallX += (0 - smallX) * Math.min(1, dt * 8); small.visible = !(state === 'sent' || state === 'await'); }
-  small.position.set(smallX, smallY + bounce + (holding ? Math.sin(t * 2.2) * 0.012 + sq * 0.5 : 0), smallZ);
-  small.rotation.z = (crying ? Math.sin(t * 30) * 0.06 : Math.sin(t * 1.6) * 0.035) + flail * Math.sin(t * 22) * 0.18;
+  if (!swap.active) small.position.set(smallX, smallY + bounce + (holding ? Math.sin(t * 2.2) * 0.012 + sq * 0.5 : 0), smallZ);
+  if (!swap.active) small.rotation.z = (crying ? Math.sin(t * 30) * 0.06 : Math.sin(t * 1.6) * 0.035) + flail * Math.sin(t * 22) * 0.18;
   small.rotation.x = crying ? 0.12 : 0;
   small.userData.mouth.scale.set(0.82, crying ? 0.82 * (1.25 + Math.sin(t * 9) * 0.12) : 0.82, 0.82);
 
@@ -1694,7 +1815,7 @@ function animate() {
   } else sweat.visible = false;
 
   // 翅膀
-  const sad = state === 'miss' || tired > 0 ? 0.35 : 0;
+  const sad = state === 'miss' || tired > 0 ? 0.35 : swap.active ? swap.open : 0;
   wingOpen += (Math.max(open, sad) - wingOpen) * Math.min(1, dt * 25);
   for (const w of hugWings) {
     const o = wingOpen;
