@@ -7,7 +7,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>抱抱鴨 3D</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #efebe4; overflow: hidden; }
+  html, body { margin: 0; height: 100%; background: #efebe4; overflow: hidden; overscroll-behavior: none; }
+  /* 關掉連點放大、長按選字 */
+  * { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  input { -webkit-user-select: text; user-select: text; }
   body { font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; color: #5b5348; }
   canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; outline: none; }
   .title { position: fixed; top: calc(env(safe-area-inset-top) + 18px); left: 0; right: 0; text-align: center; pointer-events: none; }

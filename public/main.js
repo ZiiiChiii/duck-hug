@@ -40,7 +40,7 @@ const BLACK = new THREE.MeshBasicMaterial({ color: 0x1b1b1b });
 
 // 黑色描邊（反向外殼，固定粗細，可承受非等比縮放）
 const outlineMat = new THREE.ShaderMaterial({
-  uniforms: { thickness: { value: 0.028 } },
+  uniforms: { thickness: { value: 0.05 } }, // 比毛長一點，毛會蓋住一部分黑邊 → 邊緣毛毛的
   vertexShader: `
     uniform float thickness;
     void main() {
@@ -66,10 +66,79 @@ function smoothOutline(geom) {
   return m;
 }
 
+// ---------- 毛絨絨：殼層毛皮（同一個形狀往外疊好幾層，越外層毛越稀疏） ----------
+const FUR_LAYERS = 12, FUR_LEN = 0.04, FUR_DENSITY = 42;
+const FUR_LIGHT = new THREE.Vector3(3, 6, 5).normalize();
+const FUR_COLOR = new THREE.Color(0xfdfcf8);
+const furVertex = `
+  uniform float h; uniform float len;
+  varying vec3 vBase; varying vec3 vN;
+  void main() {
+    vBase = position;
+    vec3 wn = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    wp.xyz += wn * h * len;
+    wp.y -= h * h * len * 0.4;               // 毛尖稍微往下垂
+    vN = normalize(normalMatrix * normal);
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }`;
+const furFragment = `
+  uniform float h; uniform vec3 color; uniform vec3 lightDir; uniform vec3 sc; uniform float density;
+  varying vec3 vBase; varying vec3 vN;
+  float hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+  float noise(vec3 x) {
+    vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x), mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+               mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+  }
+  void main() {
+    vec3 q = vBase * sc * density;
+    float n = noise(q) * 0.6 + noise(q * 2.7 + 7.0) * 0.4;
+    if (n < 0.12 + h * 0.78) discard;           // 越外層，留下的毛越少 → 毛尖變細
+    vec3 L = normalize((viewMatrix * vec4(lightDir, 0.0)).xyz);
+    float d = max(dot(normalize(vN), L), 0.0);
+    float band = d > 0.55 ? 1.0 : d > 0.15 ? 0.9 : 0.76;
+    float ao = mix(0.7, 1.05, h);                // 毛根比較暗、毛尖比較亮
+    gl_FragColor = vec4(color * band * ao, 1.0);
+    #include <colorspace_fragment>
+  }`;
+const furScratch = new THREE.Vector3();
+const furShells = [];
+function addFur(group, geom) {
+  for (let i = 0; i < FUR_LAYERS; i++) {
+    const m = new THREE.ShaderMaterial({
+      uniforms: {
+        h: { value: (i + 1) / FUR_LAYERS }, len: { value: FUR_LEN }, color: { value: FUR_COLOR },
+        lightDir: { value: FUR_LIGHT }, sc: { value: new THREE.Vector3(1, 1, 1) }, density: { value: FUR_DENSITY },
+      },
+      vertexShader: furVertex, fragmentShader: furFragment,
+    });
+    const shell = new THREE.Mesh(geom, m);
+    shell.renderOrder = 1;
+    let ready = false;
+    // 第一次畫的時候記下這個零件的縮放，讓毛的粗細在大小不同的零件上都一樣
+    shell.onBeforeRender = () => { if (!ready) { shell.getWorldScale(furScratch); m.uniforms.sc.value.copy(furScratch); ready = true; } };
+    shell.userData.layer = i;
+    furShells.push(shell);
+    group.add(shell);
+  }
+}
+// 手機太慢的話，自動少畫一半的毛層（看起來差不多，但順很多）
+let furFrames = 0, furTime = 0, furReduced = false;
+function furAutoQuality(dt) {
+  if (furReduced || furFrames > 150) return;
+  furFrames++; furTime += dt;
+  if (furFrames === 150 && furTime / furFrames > 1 / 40) {
+    furReduced = true;
+    for (const sh of furShells) if (sh.userData.layer % 2 === 0) sh.visible = false;
+  }
+}
+
 function part(geom, material, outline = true) {
   const g = new THREE.Group();
   g.add(new THREE.Mesh(geom, material));
   if (outline) g.add(new THREE.Mesh(smoothOutline(geom), outlineMat));
+  if (material === WHITE) addFur(g, geom);
   return g;
 }
 
@@ -175,6 +244,7 @@ function makeWing(Lw, W, bend) {
   }
   const grp = new THREE.Group();
   grp.add(new THREE.Mesh(flat, WHITE));
+  addFur(grp, flat);
   grp.add(new THREE.Mesh(rim, RIM));
   return grp;
 }
@@ -208,7 +278,7 @@ function fingers(material, count, size, spacing) {
 function eye(r, y, theta, size) {
   const e = new THREE.Mesh(SPHERE, BLACK);
   e.scale.set(size, size * 1.15, size * 0.6);
-  e.position.copy(onSurface(r, y, theta, -0.01));
+  e.position.copy(onSurface(r, y, theta, 0.022)); // 浮在毛上面，不被毛蓋住
   e.lookAt(e.position.clone().multiplyScalar(2).setY(y));
   return e;
 }
@@ -235,7 +305,7 @@ function smileBeak(r, y, k) {
   lower.rotation.x = 0.48;
   g.add(lower);
   g.scale.setScalar(k);
-  g.position.set(0, y, z0);
+  g.position.set(0, y, z0 + 0.03); // 嘴巴也浮在毛上面
   return g;
 }
 
@@ -653,6 +723,9 @@ document.addEventListener('pointerdown', (e) => {
   const b = e.target.closest && e.target.closest('button');
   if (b && !b.disabled) { audio(); sfx.click(); hap.tap(); }
 }, true);
+// 關掉 iPhone 的雙指縮放、連點放大（遊戲畫面本身的雙指縮放照常）
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
 const muteBtn = document.getElementById('muteBtn');
 const drawMute = () => { muteBtn.innerHTML = icon(sfx.isMuted() ? 'mute' : 'sound', 20); };
 drawMute();
@@ -1010,6 +1083,7 @@ function updateBubble() {
 const clock = new THREE.Clock();
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
+  furAutoQuality(dt);
   const t = clock.elapsedTime;
   stateT = window.__pauseT != null ? window.__pauseT : stateT + dt; // __pauseT 只給自動測試用
 
