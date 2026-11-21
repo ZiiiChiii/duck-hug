@@ -264,17 +264,17 @@ function bigDuck() {
   scratch.visible = false;
   scratch.userData.baseQ = scratch.quaternion.clone();
   body.add(scratch);
-  duck.userData = { body, scratch };
+  duck.userData = { body, scratch, r };
   return duck;
 }
 
 // ---------- 小鴨鴨 ----------
-function smallDuck() {
+function smallDuck(bodyMat = WHITE) {
   const duck = new THREE.Group();
   const body = new THREE.Group();
   duck.add(body);
   const { geom, r } = egg(0.66, 1.55);
-  body.add(part(geom, WHITE));
+  body.add(part(geom, bodyMat));
 
   const eyes = [eye(r, 1.23, -0.42, 0.048), eye(r, 1.23, 0.34, 0.048)];
   eyes.forEach((e) => body.add(e));
@@ -283,14 +283,14 @@ function smallDuck() {
   body.add(mouth);
 
 
-  const tail = blob(WHITE, 0.14, 0.09, 0.12);
+  const tail = blob(bodyMat, 0.14, 0.09, 0.12);
   tail.position.copy(onSurface(r, 0.36, Math.PI, -0.04));
   tail.rotation.x = 0.5;
   body.add(tail);
 
   duck.add(foot(0.85, -0.2, 0.22, 0.3));
   duck.add(foot(0.85, 0.2, 0.22, -0.15));
-  duck.userData = { body, eyes, mouth };
+  duck.userData = { body, eyes, mouth, r };
   return duck;
 }
 
@@ -305,7 +305,10 @@ small.rotation.y = 0.12;
 const ducks = new THREE.Group();
 ducks.add(big, small);
 ducks.position.y = 0;
-scene.add(ducks);
+// pairRoot：大鴨＋懷裡的小鴨＋翅膀，一起走去換衣間
+const pairRoot = new THREE.Group();
+pairRoot.add(ducks);
+scene.add(pairRoot);
 
 // 大鴨用翅膀把小鴨抱在胸前
 // 大鴨的左右翅膀都從自己身體兩側往前伸，碰到小鴨的身體
@@ -316,7 +319,7 @@ const hugWings = [-1, 1].map((side) => {
     0.2, 0.13,
     new THREE.Vector3(side, 0.25, 0.25)
   );
-  scene.add(w);
+  pairRoot.add(w);
   w.userData.side = side;
   w.userData.baseX = w.position.x;
   w.userData.baseY = w.position.y;
@@ -342,6 +345,213 @@ const hugWings = [-1, 1].map((side) => {
   shadow.position.set(0, 0.002, 0.3);
   scene.add(shadow);
 }
+
+// ---------- 鴨商城：造型、夥伴小鴨、換衣間（3D 部分） ----------
+const M = {
+  red: mat(0xe8524a), gold: mat(0xffc94a), purple: mat(0x7b5cd6), green: mat(0x5cbf6a),
+  blue: mat(0x5aa9e6), pink: mat(0xff8fb1), dark: mat(0x2b2b2b), wood: mat(0xe9c79a), cream: mat(0xfff4dc),
+  yellowBody: mat(0xffe27a), pinkBody: mat(0xffd0dc), blueBody: mat(0xcfe8ff), greenBody: mat(0xd8f0c8), greyBody: mat(0xc9c4bd),
+};
+const CONE = new THREE.ConeGeometry(1, 1, 24);
+const CYL = new THREE.CylinderGeometry(1, 1, 1, 28);
+const BOX = new THREE.BoxGeometry(1, 1, 1, 2, 2, 2);
+function shape(geom, m, sx, sy, sz, outline = true) { const p = part(geom, m, outline); p.scale.set(sx, sy, sz); return p; }
+
+// 大鴨造型（掛在大鴨身體上，跟著呼吸、被擠扁）
+const BR = big.userData.r;
+const OUTFITS = {
+  bowtie: () => {
+    const g = new THREE.Group();
+    const y = 1.22, z = BR(y) + 0.02;
+    for (const sx of [-1, 1]) {
+      const c = shape(CONE, M.red, 0.13, 0.22, 0.07);
+      c.rotation.z = sx * Math.PI / 2; c.position.set(sx * 0.12, y, z);
+      g.add(c);
+    }
+    const k = blob(M.red, 0.065, 0.065, 0.05); k.position.set(0, y, z + 0.02); g.add(k);
+    return g;
+  },
+  scarf: () => {
+    const g = new THREE.Group();
+    const y = 1.2, rr = BR(y);
+    const ring = part(new THREE.TorusGeometry(rr * 0.97, 0.1, 14, 48), M.red);
+    ring.rotation.x = Math.PI / 2; ring.position.y = y; g.add(ring);
+    const tail = shape(BOX, M.red, 0.2, 0.55, 0.08); tail.position.set(0.35, y - 0.3, rr * 0.92); tail.rotation.z = 0.15; g.add(tail);
+    for (const yy of [-0.12, -0.32]) { const st = shape(BOX, M.cream, 0.21, 0.06, 0.085, false); st.position.set(0.35 + yy * -0.15, y - 0.3 + yy + 0.2, rr * 0.92 + 0.003); st.rotation.z = 0.15; g.add(st); }
+    return g;
+  },
+  chef: () => {
+    const g = new THREE.Group();
+    const band = shape(CYL, WHITE, 0.4, 0.3, 0.4); band.position.y = 2.22; g.add(band);
+    for (const [x, z] of [[-0.18, 0], [0.18, 0], [0, 0.16], [0, -0.16], [0, 0]]) {
+      const puff = blob(WHITE, 0.26, 0.22, 0.26); puff.position.set(x, 2.5, z); g.add(puff);
+    }
+    return g;
+  },
+  crown: () => {
+    const g = new THREE.Group();
+    const ring = shape(new THREE.CylinderGeometry(1, 1.05, 1, 28, 1, true), M.gold, 0.36, 0.2, 0.36);
+    ring.position.y = 2.2; g.add(ring);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      const sp = shape(CONE, M.gold, 0.085, 0.2, 0.085); sp.position.set(Math.sin(a) * 0.34, 2.38, Math.cos(a) * 0.34); g.add(sp);
+      const gem = blob(i % 2 ? M.blue : M.red, 0.04, 0.04, 0.04, false); gem.position.set(Math.sin(a) * 0.37, 2.2, Math.cos(a) * 0.37); g.add(gem);
+    }
+    return g;
+  },
+  wizard: () => {
+    const g = new THREE.Group();
+    const brim = shape(CYL, M.purple, 0.62, 0.05, 0.62); brim.position.y = 2.17; g.add(brim);
+    const hat = shape(CONE, M.purple, 0.42, 0.95, 0.42); hat.position.y = 2.66; hat.rotation.z = -0.12; g.add(hat);
+    const star = blob(M.gold, 0.07, 0.07, 0.05); star.position.set(0.1, 2.6, 0.33); g.add(star);
+    const tip = blob(M.gold, 0.06, 0.06, 0.06); tip.position.set(0.12, 3.12, 0); g.add(tip);
+    return g;
+  },
+  beanie: () => {
+    const g = new THREE.Group();
+    const cap = blob(M.green, 0.5, 0.33, 0.5); cap.position.y = 2.12; g.add(cap);
+    const cuff = part(new THREE.TorusGeometry(0.47, 0.07, 12, 40), M.cream); cuff.rotation.x = Math.PI / 2; cuff.position.y = 2.02; g.add(cuff);
+    const pom = blob(M.cream, 0.13, 0.13, 0.13); pom.position.y = 2.5; g.add(pom);
+    return g;
+  },
+};
+let outfitObj = null;
+function wearOutfit(id) {
+  if (outfitObj) { big.userData.body.remove(outfitObj); outfitObj = null; }
+  if (id && OUTFITS[id]) { outfitObj = OUTFITS[id](); big.userData.body.add(outfitObj); }
+}
+
+// 夥伴小鴨（買了就站在大鴨後面）
+const BUDDIES = {
+  yellow: () => smallDuck(M.yellowBody),
+  pink: () => { const d = smallDuck(M.pinkBody); const r = d.userData.r;
+    for (const sx of [-1, 1]) { const b = blob(M.pink, 0.11, 0.08, 0.06); b.position.set(sx * 0.11, 1.5, 0.12); b.rotation.z = sx * 0.5; d.userData.body.add(b); }
+    const k = blob(M.pink, 0.05, 0.05, 0.05); k.position.set(0, 1.5, 0.14); d.userData.body.add(k); return d; },
+  blue: () => { const d = smallDuck(M.blueBody);
+    const cap = blob(M.blue, 0.42, 0.24, 0.42); cap.position.set(0, 1.42, 0); d.userData.body.add(cap);
+    const brim = shape(CYL, M.blue, 0.26, 0.03, 0.2); brim.position.set(0, 1.36, 0.38); d.userData.body.add(brim); return d; },
+  cool: () => { const d = smallDuck(WHITE); const r = d.userData.r;
+    for (const th of [-0.42, 0.34]) { const gl = shape(BOX, M.dark, 0.2, 0.12, 0.05, false); gl.position.copy(onSurface(r, 1.23, th, 0.03)); gl.lookAt(gl.position.clone().multiplyScalar(2).setY(1.23)); d.userData.body.add(gl); }
+    const br = shape(BOX, M.dark, 0.18, 0.025, 0.03, false); br.position.copy(onSurface(r, 1.25, -0.04, 0.035)); d.userData.body.add(br); return d; },
+  leaf: () => { const d = smallDuck(M.greenBody);
+    const lf = blob(M.green, 0.16, 0.05, 0.08); lf.position.set(0.05, 1.6, 0); lf.rotation.z = 0.5; d.userData.body.add(lf);
+    const stem = shape(CYL, M.green, 0.015, 0.1, 0.015, false); stem.position.set(0, 1.56, 0); d.userData.body.add(stem); return d; },
+  grey: () => smallDuck(M.greyBody),
+};
+const BUDDY_SLOTS = [[-1.35, -0.55], [-0.85, -1.4], [-1.85, -1.25], [-0.25, -2.1], [-2.25, -0.35], [-1.4, -2.4]]; // 右後方留給去換衣間的路
+const buddyObjs = [];
+function placeBuddies(ids) {
+  for (const b of buddyObjs) scene.remove(b);
+  buddyObjs.length = 0;
+  ids.filter((id) => BUDDIES[id]).forEach((id, i) => {
+    const slot = BUDDY_SLOTS[i % BUDDY_SLOTS.length];
+    const d = BUDDIES[id]();
+    d.scale.setScalar(0.5);
+    d.position.set(slot[0], 0, slot[1]);
+    d.rotation.y = Math.atan2(0 - slot[0], 0.6 - slot[1]);
+    d.userData.phase = i * 1.3;
+    scene.add(d);
+    buddyObjs.push(d);
+  });
+}
+let cheerT = 0;
+function buddiesCheer() { cheerT = 1; }
+function animateBuddies(t, dt) {
+  cheerT = Math.max(0, cheerT - dt * 1.2);
+  for (const d of buddyObjs) {
+    const ph = d.userData.phase;
+    const hop = cheerT > 0 ? Math.abs(Math.sin((1 - cheerT) * Math.PI * 3 + ph)) * 0.25 * cheerT : 0;
+    d.position.y = hop;
+    d.userData.body.scale.y = 1 + Math.sin(t * 2.4 + ph) * 0.02;
+    d.userData.body.rotation.z = Math.sin(t * 1.3 + ph) * 0.04;
+  }
+}
+
+// 換衣間（大鴨後面）
+const booth = new THREE.Group();
+{
+  const W2 = 0.8, H = 2.7, D = 1.2;
+  const back = shape(BOX, M.wood, W2 * 2, H, 0.08); back.position.set(0, H / 2, -D / 2); booth.add(back);
+  for (const sx of [-1, 1]) { const side = shape(BOX, M.wood, 0.08, H, D); side.position.set(sx * W2, H / 2, 0); booth.add(side); }
+  const roof = shape(BOX, M.pink, W2 * 2 + 0.3, 0.16, D + 0.3); roof.position.set(0, H + 0.08, 0); booth.add(roof);
+  // 招牌
+  const c = document.createElement('canvas'); c.width = 256; c.height = 96;
+  const g2 = c.getContext('2d');
+  g2.fillStyle = '#fff4dc'; g2.fillRect(0, 0, 256, 96);
+  g2.lineWidth = 8; g2.strokeStyle = '#1b1b1b'; g2.strokeRect(4, 4, 248, 88);
+  g2.fillStyle = '#1b1b1b'; g2.font = '900 54px "PingFang TC","Noto Sans TC",sans-serif'; g2.textAlign = 'center'; g2.textBaseline = 'middle';
+  g2.fillText('換衣間', 128, 52);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.4), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c) }));
+  sign.position.set(0, H + 0.42, D / 2 + 0.16); booth.add(sign);
+  const post = shape(BOX, M.wood, 0.06, 0.3, 0.06, false); post.position.set(0, H + 0.22, D / 2 + 0.12); booth.add(post);
+  // 布簾（從左邊收起來）
+  const curtain = new THREE.Group();
+  curtain.position.set(-W2 + 0.05, 0, D / 2);
+  for (let i = 0; i < 6; i++) {
+    const fold = shape(CYL, i % 2 ? M.pink : M.red, 0.15, H - 0.2, 0.09);
+    fold.position.set(0.14 + i * 0.27, (H - 0.2) / 2 + 0.08, 0);
+    curtain.add(fold);
+  }
+  const rod = shape(CYL, M.dark, 0.03, W2 * 2, 0.03, false); rod.rotation.z = Math.PI / 2; rod.position.set(0, H - 0.05, D / 2); booth.add(rod);
+  booth.add(curtain);
+  booth.userData.curtain = curtain;
+}
+booth.position.set(1.25, 0, -3.3);
+booth.rotation.y = -0.3;
+booth.scale.setScalar(0.92);
+scene.add(booth);
+const BOOTH_FRONT = booth.localToWorld(new THREE.Vector3(0, 0, 1.4));
+const BOOTH_IN = booth.localToWorld(new THREE.Vector3(0, 0, 0.1));
+const HOME = new THREE.Vector3(0, 0, 0);
+
+// 走去換衣間 → 拉上布簾換衣服 → 走回來
+const wardrobe = { active: false, t: 0, next: null, swapped: false, done: null, rustle: 0 };
+function startWardrobe(nextOutfit, done) {
+  Object.assign(wardrobe, { active: true, t: 0, next: nextOutfit, swapped: false, done, rustle: 0 });
+  controls.autoRotate = false;
+}
+const lerp3 = (a, b, k) => new THREE.Vector3().lerpVectors(a, b, k);
+const ease2 = (x) => x * x * (3 - 2 * x);
+function faceToward(from, to) { return Math.atan2(to.x - from.x, to.z - from.z); }
+function animateWardrobe(dt, t) {
+  const curtain = booth.userData.curtain;
+  if (!wardrobe.active) { curtain.scale.x += (1 - curtain.scale.x) * Math.min(1, dt * 6); curtain.rotation.z = 0; return; }
+  wardrobe.t += dt;
+  const w = wardrobe.t;
+  let pos = HOME, rotY = 0, scl = 1, curtainOpen = 0, waddle = false, shake = 0;
+  if (w < 1.4) { const k = ease2(w / 1.4); pos = lerp3(HOME, BOOTH_FRONT, k); rotY = faceToward(HOME, BOOTH_FRONT); waddle = true; }
+  else if (w < 1.8) { pos = BOOTH_FRONT; rotY = faceToward(HOME, BOOTH_FRONT); curtainOpen = (w - 1.4) / 0.4; }
+  else if (w < 2.4) { const k = ease2((w - 1.8) / 0.6); pos = lerp3(BOOTH_FRONT, BOOTH_IN, k); rotY = faceToward(BOOTH_FRONT, BOOTH_IN); scl = 1 - 0.7 * k; curtainOpen = 1; waddle = true; }
+  else if (w < 2.7) { pos = BOOTH_IN; scl = 0; curtainOpen = 1 - (w - 2.4) / 0.3; }
+  else if (w < 4.0) {
+    pos = BOOTH_IN; scl = 0; shake = 1;
+    wardrobe.rustle -= dt;
+    if (wardrobe.rustle <= 0) { wardrobe.rustle = 0.22; sfx.swish(); }
+    if (w > 3.4 && !wardrobe.swapped) { wardrobe.swapped = true; wearOutfit(wardrobe.next); }
+  }
+  else if (w < 4.4) { pos = BOOTH_IN; scl = 0; curtainOpen = (w - 4.0) / 0.4; if (!wardrobe.popped) { wardrobe.popped = true; } }
+  else if (w < 5.0) {
+    const k = ease2((w - 4.4) / 0.6); pos = lerp3(BOOTH_IN, BOOTH_FRONT, k); rotY = faceToward(BOOTH_IN, BOOTH_FRONT); scl = 0.3 + 0.7 * k; curtainOpen = 1; waddle = true;
+    if (!wardrobe.ta) { wardrobe.ta = true; sfx.pop(); sfx.sparkle(); hap.caught(); popHearts(); }
+  }
+  else if (w < 6.4) { const k = ease2((w - 5.0) / 1.4); pos = lerp3(BOOTH_FRONT, HOME, k); rotY = faceToward(BOOTH_FRONT, HOME); waddle = true; curtainOpen = Math.max(0, 1 - (w - 5.0) / 0.5); }
+  else if (w < 6.8) { const k = ease2((w - 6.4) / 0.4); pos = HOME; rotY = faceToward(BOOTH_FRONT, HOME) * (1 - k); }
+  else {
+    wardrobe.active = false; wardrobe.ta = false; wardrobe.popped = false;
+    pairRoot.position.set(0, 0, 0); pairRoot.rotation.set(0, 0, 0); pairRoot.scale.setScalar(1); pairRoot.visible = true;
+    if (wardrobe.done) wardrobe.done();
+    return;
+  }
+  pairRoot.position.copy(pos);
+  pairRoot.position.y = waddle ? Math.abs(Math.sin(w * 13)) * 0.06 : 0;
+  pairRoot.rotation.set(0, rotY, waddle ? Math.sin(w * 13) * 0.07 : 0);
+  pairRoot.scale.setScalar(Math.max(scl, 0.001));
+  pairRoot.visible = scl > 0.02;
+  curtain.scale.x = Math.max(0.18, 1 - 0.82 * THREE.MathUtils.clamp(curtainOpen, 0, 1));
+  curtain.rotation.z = shake ? Math.sin(t * 30) * 0.02 : 0;
+  curtain.children.forEach((f, i) => { f.rotation.z = shake ? Math.sin(t * 22 + i) * 0.05 : 0; });
+}
+
 
 // 愛心
 const heartTex = (() => {
@@ -493,6 +703,9 @@ let mode = 'solo';                        // solo / duo
 let role = null;                          // 雙人：thrower 拋鴨的人 / catcher 接鴨的人
 let resultSent = false;
 let lastScore = 0;
+let revealDone = false;
+let decoy = false;                       // 多人派對：這一輪鴨子不是飛給我（但我自己不知道）
+let emptyPresses = [], tired = 0;        // 連續空按 → 手好酸鴨
 let streak = 0, best = 0, spoke = false, landed = false;
 const bestKey = () => (mode === 'duo' ? 'hugduck-best-duo' : mode === 'multi' ? 'hugduck-best-multi' : 'hugduck-best');
 function loadBest() { try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) { best = 0; } }
@@ -540,6 +753,9 @@ function pickTrick() {
   speedMul = 1;
 }
 const has = (id) => trick && trick.some((t) => t.id === id);
+// 衝刺鴨加速後速度很快 → 接住的範圍再放寬一些
+const winHi = () => WIN_HI + (has('dash') && trickState.dashed ? 0.4 : 0);
+const winLo = () => WIN_LO - (has('dash') && trickState.dashed ? 0.3 : 0);
 
 // ---------- 鴨子圖鑑：遇過／接住過的特殊鴨子（存在這支手機裡） ----------
 const dex = { seen: [], caught: [] };
@@ -562,6 +778,8 @@ function recordCaught(list) {
 }
 
 function setState(s) {
+  revealDone = false;
+  if (s !== 'wait' && s !== 'fall') { decoy = false; if (tired > 0) { tired = 0; hideBubble(); } }
   if (s !== 'fall') sfx.stopFall();
   if (s === 'toss') { tossReleased = false; tossFromGround = state === 'miss'; }
   if (s !== 'toss') bigDip = 0;
@@ -619,11 +837,12 @@ function doThrow() {
   setButton('拋出去了！', false);
 }
 function tryCatch() {
+  if (tired > 0) return;
   if (state === 'wait' || state === 'fall') {
     if (!wingsClosed) {
       wingsClosed = true;
       const rel = smallY - CATCH_Y;
-      if (state === 'fall' && rel <= WIN_HI && rel >= WIN_LO) {
+      if (state === 'fall' && rel <= winHi() && rel >= winLo()) {
         // 時機剛好 → 接住
         setState('caught');
         sfx.stopFall();
@@ -633,16 +852,31 @@ function tryCatch() {
         if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
         updateScore();
         const firsts = recordCaught(trick);
+        addCoins(1); setTimeout(() => sfx.coin(), 260); buddiesCheer();
         if (firsts.length || streak % 5 === 0) { sfx.fanfare(); hap.big(); } else { sfx.catchSound(streak); hap.caught(); }
         if (firsts.length) firsts.forEach((tr) => achieve(`成功接住${tr.name.replace('！', '')}`));
         else toast(streak >= 3 ? `接得好！連續 ${streak} 隻` : '接得好！');
 
         setButton('…', false);
       } else {
-        toast('太早了！');
         sfx.swish(); hap.early();
-        earlyCooldown = 0.1;
-        setButton('…', false);
+        const now = performance.now();
+        emptyPresses = emptyPresses.filter((x) => now - x < 2500);
+        emptyPresses.push(now);
+        if (emptyPresses.length >= 5) {
+          // 連續空按 5 次 → 大鴨停下來：手好酸鴨
+          emptyPresses = [];
+          tired = 2.6;
+          setButton('手好酸鴨…', false);
+          showBubble('手好酸鴨…');
+          quack(0.1, 0.7, 0.35, 0.35);
+          say('手好酸鴨', 0.85, 0.9, 200);
+          hap.sad();
+        } else {
+          toast('太早了！');
+          earlyCooldown = 0.1;
+          setButton('…', false);
+        }
       }
     }
   }
@@ -707,7 +941,7 @@ function openMenu() {
   resetLooks(); setState('idle'); smallY = CATCH_Y; smallZ = HOLD_Z;
   show(menuEl, true); show(duoEl, false); show(actionBtn, false); show(roomEl, false);
   show(boardEl, false); show(submitEl, false); show(document.getElementById('inviteBtn'), false);
-  show(document.getElementById('dex'), false);
+  show(document.getElementById('dex'), false); show(document.getElementById('shop'), false);
 }
 function leaveRoom() {
   if (net && roomCode) net.presence({ code: null, msg: null, name: null, host: null, kind: null }).catch(() => {});
@@ -750,7 +984,8 @@ async function getNet() {
   });
   return net;
 }
-function myPresence(extra = {}) { return { code: roomCode, name: myName(), host: isHost, kind: isHost ? roomKind : undefined, ...extra }; }
+function myPresence(extra = {}) { return { code: roomCode, name: myName(), host: isHost, kind: roomKind, st: started ? 1 : 0, thr: currentThrower || null, ...extra }; }
+function pushPresence() { if (net && roomCode) net.presence(myPresence()).catch(() => {}); }
 function sendMsg(msg) {
   if (!net) return;
   mySeq++;
@@ -812,6 +1047,7 @@ startBtn.addEventListener('click', () => {
 // 正式開始：first = 第一個拋鴨的人
 function beginGame(first) {
   started = true;
+  show(lobbyEl, false); show(startBtn, false);
   mode = roomKind; streak = 0; loadBest(); updateScore();
   show(duoEl, false); show(actionBtn, true); show(roomEl, true);
   drawRoomLine();
@@ -820,9 +1056,23 @@ function beginGame(first) {
   if (first === myPeer) becomeThrower(roomKind === 'duo' ? `${partner ? partner.name : '朋友'} 加入了！你先拋鴨` : '你先拋鴨！');
   else becomeWaiter(`加入成功！等 ${nameOf(first)} 拋鴨`);
   sfx.dingDong(); hap.ding();
+  pushPresence();
+}
+// 其他人都離開了：留在房間等他們回來（用同一個房號就能回來）
+function backToWaiting(text) {
+  started = false; isHost = true; partner = roomKind === 'duo' ? null : partner;
+  currentThrower = null; pendingTarget = null;
+  mode = 'solo'; role = null;
+  resetLooks(); smallY = CATCH_Y; smallZ = HOLD_Z; setState('idle');
+  show(actionBtn, false); show(roomEl, false);
+  show(duoEl, true); show(document.getElementById('roomJoin'), false); show(document.getElementById('inviteBtn'), true);
+  duoMsg.textContent = `${text}\n房間號碼：${roomCode}，朋友輸入這個號碼就能回來。`;
+  pushPresence();
+  if (roomKind === 'multi') drawLobby();
 }
 function becomeThrower(msg) {
-  role = 'thrower'; pendingTarget = null;
+  role = 'thrower'; pendingTarget = null; currentThrower = myPeer;
+  setTimeout(pushPresence, 0);
   if (state === 'sent' || state === 'await') { smallY = CATCH_Y; smallZ = HOLD_Z; setState('idle'); }
   setButton('拋出鴨！', true, 'duck');
   if (msg) toast(msg);
@@ -844,32 +1094,52 @@ function onPeersChange(change) {
   if (me) myPeer = me.peer;
   const others = change.peers.filter((p) => !p.sameTab && p.presence && p.presence.code === roomCode);
   // 加入的人跟著房主的模式（雙人／多人）
-  const hostP = others.find((p) => p.presence.host);
-  if (!isHost && hostP && !started) {
+  const hostP = others.find((p) => p.presence.host) || others.find((p) => p.presence.kind);
+  if (!isHost && hostP && hostP.presence.kind && !started) {
     const k = hostP.presence.kind === 'multi' ? 'multi' : 'duo';
     if (k !== roomKind) { roomKind = k; setLabel(duoTitle, k === 'multi' ? '多人派對' : '雙人連線', k === 'multi' ? 'party' : 'duo', { size: 26 }); }
   }
   let list = others.map((p) => ({ peer: p.peer, name: String(p.presence.name || '朋友').slice(0, 10), host: !!p.presence.host, presence: p.presence }));
-  if (roomKind === 'duo') list = list.filter((x) => x.host !== isHost).slice(0, 1);
+  if (roomKind === 'duo') list = list.slice(0, 1);
   else list = list.slice(0, MAX_PLAYERS - 1);
   const before = players.map((x) => x.peer);
-  players = list.map(({ presence, ...rest }) => rest);
+  players = list;
   for (const x of players) if (!before.includes(x.peer)) seen[x.peer] = seen[x.peer] || 0;
 
   if (roomKind === 'duo') {
     const p = players[0];
     if (!p) {
-      if (partner && !lostTimer) lostTimer = setTimeout(() => { lostTimer = null; if (!players.length && mode === 'duo') { toast('朋友離線了'); openMenu(); } }, 3000);
+      if (partner && !lostTimer) lostTimer = setTimeout(() => { lostTimer = null; if (!players.length && started) { toast('朋友離線了'); backToWaiting('朋友離線了，等他回來…'); } }, 3000);
     } else {
       clearTimeout(lostTimer); lostTimer = null;
+      const pp = list[0].presence;
       if (!partner || partner.peer !== p.peer) {
         partner = { peer: p.peer, name: p.name };
-        if (!started && myPeer) beginGame(isHost ? myPeer : p.peer);
+        if (!started && myPeer) {
+          // 對方正在玩（我是回來的人）→ 照對方記得的輪次；不然由房主（沒有房主就用編號小的）先拋
+          let first;
+          if (pp.st && pp.thr) first = pp.thr;
+          else if (isHost) first = myPeer;
+          else if (p.host) first = p.peer;
+          else first = [myPeer, p.peer].sort()[0];
+          beginGame(first);
+        }
       }
     }
   } else {
+    // 房主不見了而且還沒開始 → 編號最小的人當新房主
+    if (!started && !isHost && myPeer && !list.some((x) => x.host) && list.length && [myPeer, ...list.map((x) => x.peer)].sort()[0] === myPeer) {
+      isHost = true; pushPresence();
+    }
+    // 回到已經開始的派對 → 直接加入，等鴨子飛來
+    const live = list.find((x) => x.presence.st);
+    if (!started && live && myPeer) beginGame(live.presence.thr && live.presence.thr !== myPeer ? live.presence.thr : live.peer);
     drawLobby();
-    if (started) { drawRoomLine(); checkStuck(); }
+    if (started) {
+      drawRoomLine(); checkStuck();
+      if (!players.length && !lostTimer) lostTimer = setTimeout(() => { lostTimer = null; if (!players.length && started) backToWaiting('其他人都離開了，等朋友回來…'); }, 3000);
+      if (players.length) { clearTimeout(lostTimer); lostTimer = null; }
+    }
   }
 
   // 讀每個人送來的訊息（同一則只處理一次）
@@ -902,8 +1172,9 @@ function checkStuck() {
     return;
   }
   if (currentThrower && !alive.has(currentThrower)) {
-    // 拋鴨的人離開了 → 由編號最小的人接手拋鴨
-    const next = [...alive].sort()[0];
+    // 拋鴨的人離開了 → 如果有人說鴨子在他手上就交給他，不然由編號最小的人接手
+    const holder = players.find((x) => x.presence && x.presence.st && x.presence.thr === x.peer);
+    const next = holder ? holder.peer : [...alive].sort()[0];
     currentThrower = next;
     if (next === myPeer && role !== 'thrower') becomeThrower('拋鴨的人離開了，換你拋！');
   }
@@ -922,8 +1193,9 @@ function sendThrow() {
     trick: trick.map((x) => x.id),
     ts: trickState, hi: WIN_HI, lo: WIN_LO, streak,
   });
-  setButton(`等 ${target.name} 接…`, false);
-  if (roomKind === 'multi') toast(`拋給了 ${target.name}！`);
+  // 多人派對：誰要接是秘密，連拋的人都不知道
+  if (roomKind === 'multi') { setButton('鴨子飛出去了…', false); toast('鴨子飛出去了！'); }
+  else setButton(`等 ${target.name} 接…`, false);
 }
 function sendResult(ok) { currentThrower = myPeer; sendMsg({ t: 'result', ok, streak, at: Date.now() }); }
 function num(v, d) { return typeof v === 'number' && isFinite(v) ? v : d; }
@@ -932,15 +1204,10 @@ function handleMsg(msg, from) {
     if (!started) beginGame(from);
     return;
   }
+  if (!started && (msg.t === 'throw' || msg.t === 'result')) beginGame(msg.t === 'result' ? from : (msg.to === myPeer ? from : from));
   if (msg.t === 'throw') {
     currentThrower = from;
     const forMe = roomKind === 'duo' || !msg.to || msg.to === myPeer;
-    if (!forMe) {
-      // 不是丟給我：看熱鬧
-      toast(`${nameOf(from)} 拋給了 ${String(msg.toName || nameOf(msg.to)).slice(0, 10)}！`);
-      sfx.whooshIn();
-      return;
-    }
     audio();
     resetLooks();
     role = 'catcher';
@@ -959,8 +1226,11 @@ function handleMsg(msg, from) {
     streak = Math.max(0, Math.floor(num(msg.streak, 0))); updateScore();
     speedMul = 1; vel = 0; smallY = 6.5; smallZ = HOLD_Z; wingsClosed = false;
     setState('wait'); waitFor = Math.min(Math.max(num(msg.delay, 1.5), 0.5), 4);
+    // 多人派對：大家畫面都一樣（都能按接住、翅膀都能揮），只有真正被選中的人鴨子會掉下來
+    decoy = !forMe;
+    if (decoy) { waitFor = 1e9; trick = []; }
     setButton('接住！');
-    toast(roomKind === 'multi' ? `${nameOf(from)} 拋給你了！` : `${nameOf(from)} 拋鴨了！`);
+    toast(roomKind === 'multi' ? '鴨子飛出去了！注意！' : `${nameOf(from)} 拋鴨了！`);
     sfx.whooshIn(); hap.ding();
   } else if (msg.t === 'result') {
     currentThrower = from;
@@ -1078,6 +1348,99 @@ function openDex() {
 document.getElementById('dexBtn').addEventListener('click', openDex);
 document.getElementById('dexBack').addEventListener('click', openMenu);
 
+// ---------- 鴨幣 ＆ 鴨商城（介面） ----------
+let coins = 0;
+try { coins = Math.max(0, Math.floor(+localStorage.getItem('hugduck-coins') || 0)); } catch (e) {}
+const shopState = { owned: [], outfit: null };
+try { Object.assign(shopState, JSON.parse(localStorage.getItem('hugduck-shop') || '{}')); } catch (e) {}
+const saveShop = () => { try { localStorage.setItem('hugduck-shop', JSON.stringify(shopState)); localStorage.setItem('hugduck-coins', String(coins)); } catch (e) {} };
+const coinEl = document.getElementById('coins');
+function drawCoins(bump) {
+  coinEl.innerHTML = `${icon('coin', 24)}<b>${coins}</b>`;
+  if (bump) { coinEl.classList.remove('bump'); void coinEl.offsetWidth; coinEl.classList.add('bump'); }
+}
+function addCoins(n) { coins += n; saveShop(); drawCoins(true); }
+drawCoins(false);
+
+const SHOP_ITEMS = [
+  { id: 'bowtie', kind: 'big', name: '紅領結', price: 40, ic: 'bowtie' },
+  { id: 'scarf', kind: 'big', name: '溫暖圍巾', price: 60, ic: 'scarf' },
+  { id: 'beanie', kind: 'big', name: '毛線帽', price: 80, ic: 'beanie' },
+  { id: 'chef', kind: 'big', name: '廚師帽', price: 100, ic: 'chef' },
+  { id: 'wizard', kind: 'big', name: '魔法師帽', price: 150, ic: 'wizard' },
+  { id: 'crown', kind: 'big', name: '國王皇冠', price: 200, ic: 'crown' },
+  { id: 'yellow', kind: 'small', name: '小黃鴨', price: 10, ic: 'chick-ffe27a' },
+  { id: 'grey', kind: 'small', name: '小灰鴨', price: 12, ic: 'chick-c9c4bd' },
+  { id: 'pink', kind: 'small', name: '蝴蝶結小粉鴨', price: 18, ic: 'chick-ffd0dc-bow' },
+  { id: 'blue', kind: 'small', name: '棒球帽小藍鴨', price: 22, ic: 'chick-cfe8ff-cap' },
+  { id: 'leaf', kind: 'small', name: '小葉子綠鴨', price: 26, ic: 'chick-d8f0c8-leaf' },
+  { id: 'cool', kind: 'small', name: '墨鏡酷小鴨', price: 30, ic: 'chick-fdfcf8-shades' },
+];
+// 一進來就穿上已經買好的造型、讓夥伴小鴨站好
+shopState.owned = shopState.owned.filter((id) => SHOP_ITEMS.some((x) => x.id === id));
+if (!shopState.owned.includes(shopState.outfit)) shopState.outfit = null;
+wearOutfit(shopState.outfit);
+placeBuddies(shopState.owned.filter((id) => BUDDIES[id]));
+
+const shopEl = document.getElementById('shop');
+const shopList = document.getElementById('shopList');
+let shopTab = 'big';
+function openShop() {
+  show(menuEl, false); show(shopEl, true); show(actionBtn, false); show(submitEl, false); hideBubble();
+  document.querySelectorAll('#shop .tab').forEach((b) => b.classList.toggle('on', b.dataset.k === shopTab));
+  document.getElementById('shopCoins').innerHTML = `${icon('coin', 26)}<b>${coins}</b> 鴨幣　<small>每接住 1 隻得 1 枚</small>`;
+  document.getElementById('shopHint').textContent = shopTab === 'big'
+    ? '大鴨會走進後面的換衣間換上新造型'
+    : '買到的小鴨會站在大鴨後面一起玩';
+  shopList.textContent = '';
+  for (const it of SHOP_ITEMS.filter((x) => x.kind === shopTab)) {
+    const owned = shopState.owned.includes(it.id);
+    const worn = shopState.outfit === it.id;
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="sh-ic">${icon(it.ic, 46)}</span><span class="sh-tx"><b></b><small>${icon('coin', 16)}${it.price}</small></span>`;
+    li.querySelector('b').textContent = it.name;
+    const btn = document.createElement('button');
+    if (!owned) {
+      btn.textContent = coins >= it.price ? '購買' : `還差 ${it.price - coins}`;
+      btn.disabled = coins < it.price;
+      btn.className = 'buy';
+      btn.onclick = () => buy(it);
+    } else if (it.kind === 'big') {
+      btn.textContent = worn ? '脫下' : '穿上';
+      btn.className = worn ? '' : 'buy';
+      btn.onclick = () => changeOutfit(worn ? null : it.id);
+    } else {
+      btn.textContent = '已在身後';
+      btn.disabled = true;
+    }
+    li.appendChild(btn);
+    shopList.appendChild(li);
+  }
+}
+function buy(it) {
+  if (coins < it.price || shopState.owned.includes(it.id)) return;
+  coins -= it.price;
+  shopState.owned.push(it.id);
+  saveShop(); drawCoins(true); sfx.coin();
+  if (it.kind === 'big') changeOutfit(it.id);
+  else {
+    placeBuddies(shopState.owned.filter((id) => BUDDIES[id]));
+    show(shopEl, false);
+    toast(`${it.name}來到大鴨身後了！`);
+    sfx.pop(); hap.caught(); buddiesCheer();
+    setTimeout(openShop, 1800);
+  }
+}
+function changeOutfit(id) {
+  if (wardrobe.active) return;
+  shopState.outfit = id; saveShop();
+  show(shopEl, false);
+  startWardrobe(id, () => { toast(id ? '換好了！好看嗎？' : '換回原本的樣子了'); setTimeout(openShop, 900); });
+}
+document.getElementById('shopBtn').addEventListener('click', openShop);
+document.querySelectorAll('#shop .tab').forEach((b) => b.addEventListener('click', () => { shopTab = b.dataset.k; openShop(); }));
+document.getElementById('shopBack').addEventListener('click', openMenu);
+
 openMenu();
 // 從邀請連結進來：直接打開雙人頁、填好房號
 {
@@ -1137,6 +1500,8 @@ function updateBubble() {
 const clock = new THREE.Clock();
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
+  animateWardrobe(dt, clock.elapsedTime);
+  animateBuddies(clock.elapsedTime, dt);
   const t = clock.elapsedTime;
   stateT = window.__pauseT != null ? window.__pauseT : stateT + dt; // __pauseT 只給自動測試用
 
@@ -1229,9 +1594,9 @@ function animate() {
     flail = 1;
     open = wingsClosed ? 0 : 1;
     const rel = smallY - CATCH_Y;
-    if (rel < WIN_LO) {
+    if (rel < winLo()) {
       // 沒接到：往前滑落到地上
-      const k = THREE.MathUtils.clamp((WIN_LO - rel) / 0.4, 0, 1);
+      const k = THREE.MathUtils.clamp((winLo() - rel) / 0.4, 0, 1);
       smallZ = HOLD_Z + (GROUND_Z - HOLD_Z) * k;
       if (!wingsClosed) { wingsClosed = true; toast('太晚了！'); setButton('…', false); }
     }
@@ -1258,6 +1623,10 @@ function animate() {
     }
     if (stateT > 2.4) hideBubble();
   } else if (state === 'miss') {
+    if (stateT > 1.7 && !revealDone && trick && trick.length) {
+      revealDone = true;
+      toast(`剛剛那隻是${trick.map((x) => x.name.replace('！', '')).join('＋')}`, 'warning');
+    }
     crying = stateT > 0.25;
     troubled = stateT > 0.4;
     bounce = stateT < 0.5 ? 0.12 * Math.abs(Math.sin(stateT * 12)) * Math.exp(-stateT * 6) : 0;
@@ -1276,10 +1645,18 @@ function animate() {
     bounce = 0;
   }
 
+  // 手好酸：休息一下，時間到才能再接
+  if (tired > 0) {
+    tired -= dt;
+    if (tired <= 0) {
+      tired = 0; hideBubble();
+      if ((state === 'wait' || state === 'fall') && smallY - CATCH_Y >= winLo()) { wingsClosed = false; setButton('接住！'); sfx.flap(); }
+    }
+  }
   // 太早按的冷卻：0.1 秒後翅膀打開，可以再按
-  if (earlyCooldown > 0 && (state === 'wait' || state === 'fall')) {
+  if (earlyCooldown > 0 && tired <= 0 && (state === 'wait' || state === 'fall')) {
     earlyCooldown -= dt;
-    if (earlyCooldown <= 0 && smallY - CATCH_Y >= WIN_LO) { wingsClosed = false; setButton('接住！'); sfx.flap(); }
+    if (earlyCooldown <= 0 && smallY - CATCH_Y >= winLo()) { wingsClosed = false; setButton('接住！'); sfx.flap(); }
   }
 
   // 小鴨位置
@@ -1317,7 +1694,7 @@ function animate() {
   } else sweat.visible = false;
 
   // 翅膀
-  const sad = state === 'miss' ? 0.35 : 0;
+  const sad = state === 'miss' || tired > 0 ? 0.35 : 0;
   wingOpen += (Math.max(open, sad) - wingOpen) * Math.min(1, dt * 25);
   for (const w of hugWings) {
     const o = wingOpen;

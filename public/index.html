@@ -100,6 +100,24 @@
   .lobby li { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px dashed #d8cfbf; font-size: 15px; font-weight: 700; color: #1b1b1b; }
   .lobby .ic { margin: 0; }
   #startBtn:disabled { background: #efe4cf; color: #8a8072; }
+  .coins { position: fixed; top: calc(env(safe-area-inset-top) + 54px); left: 12px; display: inline-flex; align-items: center; gap: 4px;
+           background: rgba(255,255,255,.85); border: 2px solid #1b1b1b; border-radius: 999px; padding: 2px 10px 2px 4px; font-size: 15px; color: #1b1b1b; pointer-events: none; }
+  .coins .ic { margin: 0; }
+  .coins.bump { animation: coinBump .45s cubic-bezier(.3,1.8,.5,1); }
+  @keyframes coinBump { 0% { transform: scale(1); } 40% { transform: scale(1.3); } 100% { transform: scale(1); } }
+  .shop-coins { display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 16px; font-weight: 800; color: #1b1b1b; }
+  .shop-coins small { font-size: 11.5px; color: #8a8072; font-weight: 600; margin-left: 4px; }
+  .shop-coins .ic { margin: 0; }
+  .shoplist { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow: auto; text-align: left; }
+  .shoplist li { display: flex; align-items: center; gap: 10px; padding: 7px 2px; border-bottom: 1px dashed #d8cfbf; color: #1b1b1b; }
+  .shoplist .sh-ic .ic { margin: 0; }
+  .shoplist .sh-tx { flex: 1; display: flex; flex-direction: column; }
+  .shoplist .sh-tx b { font-size: 16px; }
+  .shoplist .sh-tx small { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 800; color: #8a5a00; }
+  .shoplist .sh-tx small .ic { margin: 0; }
+  .shoplist button { padding: 7px 12px !important; font-size: 14px; min-width: 76px; }
+  .shoplist button.buy { background: #ffc35a; }
+  .shoplist button:disabled { background: #efe4cf; color: #8a8072; box-shadow: none; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 15px; }
 </style>
 <script type="importmap">
@@ -125,6 +143,7 @@
   <button class="big" id="multiBtn"><span data-ic="party" data-size="30"></span>多人派對</button>
   <button id="boardBtn"><span data-ic="trophy"></span>排行榜</button>
   <button id="dexBtn"><span data-ic="book"></span>鴨子圖鑑</button>
+  <button id="shopBtn"><span data-ic="shop"></span>鴨商城</button>
 </div>
 <div class="panel hidden" id="duo">
   <h2 id="duoTitle">雙人連線</h2>
@@ -152,6 +171,15 @@
   <button class="link" id="dexBack">← 返回</button>
 </div>
 <div class="achv" id="achv"></div>
+<div class="panel hidden" id="shop">
+  <h2><span data-ic="shop" data-size="26"></span>鴨商城</h2>
+  <div class="msg shop-coins" id="shopCoins"></div>
+  <div class="tabs"><button class="tab on" data-k="big">大鴨造型</button><button class="tab" data-k="small">小鴨夥伴</button></div>
+  <div class="msg" id="shopHint"></div>
+  <ul class="shoplist" id="shopList"></ul>
+  <button class="link" id="shopBack">← 返回</button>
+</div>
+<div class="coins" id="coins"></div>
 <div class="card hidden" id="submit">
   <div class="msg" id="submitText"></div>
   <div class="row"><button class="big" id="submitBtn">登記成績</button><button id="shareScoreBtn"><span data-ic="send" data-size="18"></span>分享</button></div>

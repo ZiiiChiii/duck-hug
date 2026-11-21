@@ -59,7 +59,32 @@ const ICONS = {
     <path d="M12 6.5v13" fill="none" ${S}/>
     <path d="M6.5 8.5c1.3-.1 2.5.1 3.5.6M6.5 11.5c1.3-.1 2.5.1 3.5.6M14 9.1c1-.5 2.2-.7 3.5-.6" fill="none" stroke="${O}" stroke-width="1.6" stroke-linecap="round"/>`,
   star: `<path d="M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z" fill="${Y}" ${S}/>`,
+  // 鴨幣：金幣上有一隻很開心的鴨子
+  coin: `<circle cx="12" cy="12" r="9.5" fill="#ffc94a" ${S}/>
+    <circle cx="12" cy="12" r="7.3" fill="none" stroke="#e6a21f" stroke-width="1.3"/>
+    <path d="M12 6.2c2.2 0 3.6 1.6 3.6 3.6 0 .8-.2 1.5-.6 2.1 1.5.9 2.3 2.3 2.3 3.6 0 1.6-2 2.4-5.3 2.4s-5.3-.8-5.3-2.4c0-1.3.8-2.7 2.3-3.6-.4-.6-.6-1.3-.6-2.1 0-2 1.4-3.6 3.6-3.6z" fill="${W}" stroke="${K}" stroke-width="1.4" stroke-linejoin="round"/>
+    <path d="M10 9.3q.6-.7 1.2 0M12.8 9.3q.6-.7 1.2 0" fill="none" stroke="${K}" stroke-width="1.2" stroke-linecap="round"/>
+    <path d="M10.6 10.8c.9-.5 1.9-.5 2.8 0-.3 1.1-2.5 1.1-2.8 0z" fill="${O}" stroke="${K}" stroke-width="1" stroke-linejoin="round"/>
+    <path d="M8.8 15.2c1 .5 1.8.5 2.4.2M15.2 15.2c-1 .5-1.8.5-2.4.2" fill="none" stroke="${K}" stroke-width="1.1" stroke-linecap="round"/>`,
+  shop: `<path d="M4 9h16l-1 11H5z" fill="${W}" ${S}/>
+    <path d="M3 9l2-4.5h14L21 9z" fill="#ff8fb1" ${S}/>
+    <path d="M9 9V7.5a3 3 0 0 1 6 0V9" fill="none" ${S}/>
+    <circle cx="12" cy="14.5" r="2.4" fill="#ffc94a" ${S}/>`,
+  bowtie: `<path d="M12 12L4 7.5v9zM12 12l8-4.5v9z" fill="#e8524a" ${S}/><circle cx="12" cy="12" r="2" fill="#e8524a" ${S}/>`,
+  scarf: `<path d="M4 8c5 3 11 3 16 0v4c-5 3-11 3-16 0z" fill="#e8524a" ${S}/><path d="M13 13.5l1.5 7 3-1-1.2-6.8" fill="#e8524a" ${S}/><path d="M14.2 17h2.6" fill="none" stroke="${W}" stroke-width="1.5"/>`,
+  chef: `<path d="M8 13h8v6H8z" fill="${W}" ${S}/><path d="M8 13c-3 0-4-5 0-5 0-3 8-3 8 0 4 0 3 5 0 5z" fill="${W}" ${S}/>`,
+  crown: `<path d="M4 18l-1-10 5 4 4-7 4 7 5-4-1 10z" fill="#ffc94a" ${S}/><circle cx="12" cy="14.5" r="1.4" fill="#e8524a" ${S}/>`,
+  wizard: `<path d="M3 19.5h18" fill="none" stroke="#7b5cd6" stroke-width="3.2" stroke-linecap="round"/><path d="M3 19.5h18" fill="none" ${S}/><path d="M6 19L13 3l4 16z" fill="#7b5cd6" ${S}/><path d="M12 11l.7 1.4 1.5.2-1.1 1 .3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1 1.5-.2z" fill="#ffc94a"/>`,
+  beanie: `<path d="M5 15a7 7 0 0 1 14 0z" fill="#5cbf6a" ${S}/><rect x="4" y="14.5" width="16" height="4" rx="1.5" fill="#fff4dc" ${S}/><circle cx="12" cy="5.5" r="2" fill="#fff4dc" ${S}/>`,
   heart: `<path d="M12 20s-7.5-4.5-7.5-10A4 4 0 0 1 12 7.5 4 4 0 0 1 19.5 10C19.5 15.5 12 20 12 20z" fill="${P}" ${S}/>`,
+};
+
+// 夥伴小鴨的小配件（商城預覽用）
+const ACC = {
+  bow: `<path d="M12 5L8.5 3v4zM12 5l3.5-2v4z" fill="#ff8fb1" ${S}/>`,
+  cap: `<path d="M6 9a6 6 0 0 1 12 0z" fill="#5aa9e6" ${S}/><path d="M12 9h7" fill="none" stroke="#5aa9e6" stroke-width="2.6" stroke-linecap="round"/>`,
+  shades: `<rect x="7" y="9.8" width="4.2" height="2.6" rx="1" fill="#2b2b2b"/><rect x="12.8" y="9.8" width="4.2" height="2.6" rx="1" fill="#2b2b2b"/><path d="M11 11h2" stroke="#2b2b2b" stroke-width="1.2"/>`,
+  leaf: `<path d="M12 6c1-3 4-3.5 5-2.5-1 2.5-3 3-5 2.5z" fill="#5cbf6a" ${S}/>`,
 };
 
 // 獎牌：1 金、2 銀、3 銅
@@ -71,6 +96,12 @@ function medal(n) {
 }
 
 export function icon(name, size = 22) {
+  if (name.startsWith('chick-')) {
+    const col = '#' + name.slice(6, 12);
+    const extra = name.slice(13);
+    const body = ICONS.chick.replace(`fill="${W}"`, `fill="${col}"`) + (ACC[extra] || '');
+    return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${body}</svg>`;
+  }
   const body = name === 'gold' ? medal(1) : name === 'silver' ? medal(2) : name === 'bronze' ? medal(3) : ICONS[name];
   if (!body) return '';
   return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${body}</svg>`;
