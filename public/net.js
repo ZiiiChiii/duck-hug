@@ -71,18 +71,18 @@ export async function serverRoom() {
 }
 
 // ---------- 排行榜 ----------
-export async function submitScore(mode, name, score) {
+export async function submitScore(mode, name, score, total) {
   const r = await fetch('/api/scores', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ mode, name: String(name).slice(0, 21), score: Math.floor(score) }),
+    body: JSON.stringify({ mode, name: String(name).slice(0, 21), score: Math.floor(score), total: Math.floor(total) }),
   });
   if (!r.ok) throw new Error(r.status === 429 ? 'too fast' : 'failed');
 }
 
-export async function topScores(mode) {
+export async function topScores(mode, kind) {
   if (!(await hasServer())) return null;
-  const r = await fetch(`/api/scores?mode=${mode === 'duo' ? 'duo' : 'solo'}`, { cache: 'no-store' });
+  const r = await fetch(`/api/scores?mode=${mode === 'duo' ? 'duo' : 'solo'}&kind=${kind === 'total' ? 'total' : 'streak'}`, { cache: 'no-store' });
   if (!r.ok) return null;
   const data = await r.json();
   return Array.isArray(data.rows) ? data.rows.map((x) => ({ name: String(x.name || '玩家'), score: Number(x.score) || 0 })) : null;

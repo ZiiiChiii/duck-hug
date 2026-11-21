@@ -1281,14 +1281,21 @@ let tossVel = 0, tossReleased = false, tossFromGround = false;
 let mode = 'solo';                        // solo / duo
 let role = null;                          // 雙人：thrower 拋鴨的人 / catcher 接鴨的人
 let resultSent = false;
-let lastScore = 0;
+let lastScore = 0, lastTotal = 0;
 let runBest = 0;                           // 這一局（被彈起救回而中斷前）最長的連續紀錄，送排行榜用
 let revealDone = false;
 let decoy = false;                       // 多人派對：這一輪鴨子不是飛給我（但我自己不知道）
 let emptyPresses = [], tired = 0;        // 連續空按 → 手好酸鴨
 let streak = 0, best = 0, spoke = false, landed = false;
+let caughtN = 0, bestTotal = 0;          // 接住次數：只要小鴨沒哭（沒真的失敗）就一直累積
 const bestKey = () => (mode === 'duo' ? 'hugduck-best-duo' : mode === 'multi' ? 'hugduck-best-multi' : 'hugduck-best');
-function loadBest() { try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) { best = 0; } }
+function loadBest() {
+  try { best = +localStorage.getItem(bestKey()) || 0; bestTotal = +localStorage.getItem(bestKey() + '-total') || 0; } catch (e) { best = 0; bestTotal = 0; }
+}
+function saveBests() {
+  if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
+  if (caughtN > bestTotal) { bestTotal = caughtN; try { localStorage.setItem(bestKey() + '-total', bestTotal); } catch (e) {} }
+}
 loadBest();
 let speedMul = 1;
 const vmax = () => Math.min(Math.min(3.0 + streak * 0.3, 6.0) * speedMul, 8); // 最快不超過 8，避免衝刺鴨快到接不到
@@ -1366,7 +1373,12 @@ function setState(s) {
   state = s; stateT = 0; spoke = false;
 }
 function setButton(text, enabled = true, ic = null) { setLabel(actionBtn, text, ic, { size: 26 }); actionBtn.disabled = !enabled; }
-function updateScore() { scoreEl.textContent = `${mode === 'duo' ? '雙人合作 ' : mode === 'multi' ? '派對 ' : ''}連續接住 ${streak} 隻　最佳 ${best} 隻`; }
+function updateScore() {
+  scoreEl.textContent = `${mode === 'duo' ? '雙人合作 ' : mode === 'multi' ? '派對 ' : ''}連續接住 ${streak} 隻（最佳 ${best}）`;
+  const sub = document.createElement('span'); sub.className = 'sub';
+  sub.textContent = `接住次數 ${caughtN} 次（最佳 ${bestTotal}）`;
+  scoreEl.appendChild(sub);
+}
 let toastTimer;
 function toast(text, ic = null) {
   setLabel(toastEl, text, ic, { size: 30 });
@@ -1431,7 +1443,8 @@ function tryCatch() {
         const rescued = !!trickState.rebound;           // 稀有鴨掉地上彈起來後的第二次接住
         if (rescued) { runBest = Math.max(runBest, streak); streak = 1; }  // 算接住、遊戲繼續，但連續重新算
         else streak++;
-        if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
+        caughtN++;
+        saveBests();
         updateScore();
         const firsts = rescued ? [] : recordCaught(trick);
         const bonus = streak % 5 === 0 ? 1 : 0;        // 連續 5 的倍數：多 1 枚
@@ -1523,7 +1536,7 @@ function myName() { return (nameIn.value || '').trim().slice(0, 10) || '玩家';
 const nameOf = (peer) => (peer === myPeer ? myName() : (players.find((x) => x.peer === peer) || {}).name || '朋友');
 function openMenu() {
   leaveRoom();
-  mode = 'solo'; role = null; streak = 0; runBest = 0; loadBest(); updateScore();
+  mode = 'solo'; role = null; streak = 0; caughtN = 0; runBest = 0; loadBest(); updateScore();
   resetLooks(); setState('idle'); smallY = CATCH_Y; smallZ = HOLD_Z;
   show(menuEl, true); show(duoEl, false); show(actionBtn, false); show(roomEl, false);
   show(boardEl, false); show(submitEl, false); show(document.getElementById('inviteBtn'), false);
@@ -1536,7 +1549,7 @@ function leaveRoom() {
   clearTimeout(lostTimer); lostTimer = null;
 }
 document.getElementById('soloBtn').addEventListener('click', () => {
-  mode = 'solo'; streak = 0; runBest = 0; loadBest(); updateScore();
+  mode = 'solo'; streak = 0; caughtN = 0; runBest = 0; loadBest(); updateScore();
   show(menuEl, false); show(actionBtn, true);
   setButton('開始遊戲');
 });
@@ -1634,7 +1647,7 @@ startBtn.addEventListener('click', () => {
 function beginGame(first) {
   started = true;
   show(lobbyEl, false); show(startBtn, false);
-  mode = roomKind; streak = 0; runBest = 0; loadBest(); updateScore();
+  mode = roomKind; streak = 0; caughtN = 0; runBest = 0; loadBest(); updateScore();
   show(duoEl, false); show(actionBtn, true); show(roomEl, true);
   drawRoomLine();
   resetLooks(); smallZ = HOLD_Z;
@@ -1777,13 +1790,19 @@ function sendThrow() {
     t: 'throw', to: target.peer, toName: target.name, at: Date.now(),
     delay: 1 + Math.random() * 2.2,          // 隨機過一段時間鴨子才出現
     trick: trick.map((x) => x.id),
-    ts: trickState, hi: WIN_HI, lo: WIN_LO, streak,
+    ts: trickState, hi: WIN_HI, lo: WIN_LO, streak, caught: caughtN, runBest,
   });
   // 多人派對：誰要接是秘密，連拋的人都不知道
   if (roomKind === 'multi') { setButton('鴨子飛出去了…', false); toast('鴨子飛出去了！'); }
   else setButton(`等 ${target.name} 接…`, false);
 }
-function sendResult(ok) { currentThrower = myPeer; sendMsg({ t: 'result', ok, streak, at: Date.now() }); }
+function sendResult(ok) { currentThrower = myPeer; sendMsg({ t: 'result', ok, streak, caught: caughtN, runBest, at: Date.now() }); }
+// 雙人／多人：大家的連續、接住次數都跟著最新的結果
+function syncScores(msg) {
+  streak = Math.max(0, Math.floor(num(msg.streak, 0)));
+  caughtN = Math.max(0, Math.floor(num(msg.caught, streak)));
+  runBest = Math.max(0, Math.floor(num(msg.runBest, 0)));
+}
 function num(v, d) { return typeof v === 'number' && isFinite(v) ? v : d; }
 function handleMsg(msg, from) {
   if (msg.t === 'start') {
@@ -1809,7 +1828,7 @@ function handleMsg(msg, from) {
     };
     WIN_HI = Math.min(Math.max(num(msg.hi, 0.8), 0.5), 0.85);
     WIN_LO = Math.min(Math.max(num(msg.lo, -0.45), -0.5), -0.3);
-    streak = Math.max(0, Math.floor(num(msg.streak, 0))); updateScore();
+    syncScores(msg); updateScore();
     speedMul = 1; vel = 0; smallY = 6.5; smallZ = HOLD_Z; wingsClosed = false;
     setState('wait'); waitFor = Math.min(Math.max(num(msg.delay, 1.5), 0.5), 4);
     // 多人派對：大家畫面都一樣（都能按接住、翅膀都能揮），只有真正被選中的人鴨子會掉下來
@@ -1820,8 +1839,8 @@ function handleMsg(msg, from) {
     sfx.whooshIn(); hap.ding();
   } else if (msg.t === 'result') {
     currentThrower = from;
-    streak = Math.max(0, Math.floor(num(msg.streak, 0)));
-    if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
+    syncScores(msg);
+    saveBests();
     updateScore();
     toast(msg.ok ? `${nameOf(from)} 收到鴨！` : `${nameOf(from)} 沒接到…`, msg.ok ? 'party' : null);
     if (msg.ok) { sfx.catchSound(streak); quack(0.3, 1.1, 0.35, 0.15); hap.caught(); } else { sfx.sadTrombone(0); hap.sad(); }
@@ -1837,7 +1856,7 @@ const boardEl = document.getElementById('board');
 const boardList = document.getElementById('boardList');
 const submitEl = document.getElementById('submit');
 const submitText = document.getElementById('submitText');
-let boardMode = 'solo', pendingScore = 0, pendingMode = 'solo';
+let boardMode = 'solo', boardKind = 'streak', pendingScore = 0, pendingTotal = 0, pendingMode = 'solo';
 const gameUrl = () => location.origin + location.pathname;
 
 async function share(text, url) {
@@ -1847,34 +1866,39 @@ async function share(text, url) {
   try { await navigator.clipboard.writeText(`${text} ${url}`); toast('已複製連結，貼給朋友吧！'); }
   catch (e) { toast('請複製網址分享給朋友'); }
 }
-function offerSubmit(score) {
+function offerSubmit(score, total) {
   if (score < 1 || mode === 'multi') return; // 多人派對不登記排行榜
   // 雙人模式只由沒接到的那一方登記一次，避免重複
   pendingScore = score;
+  pendingTotal = Math.max(score, total || 0);
   pendingMode = mode;
   const who = mode === 'duo' && partner ? `${myName()}＆${partner.name}` : myName();
-  submitText.textContent = `${mode === 'duo' ? '你們' : '你'}這局連續接住 ${score} 隻！\n用「${who}」登記成績？`;
+  submitText.textContent = `${mode === 'duo' ? '你們' : '你'}這局最多連續接住 ${score} 隻、總共接住 ${pendingTotal} 次！\n用「${who}」登記成績？`;
   show(submitEl, true);
 }
 document.getElementById('submitBtn').addEventListener('click', async () => {
   const name = pendingMode === 'duo' && partner ? `${myName()}＆${partner.name}` : myName();
   show(submitEl, false);
   if (!(await hasServer())) { toast('排行榜要放上網站後才能用'); return; }
-  try { await submitScore(pendingMode, name, pendingScore); toast('登記成功！'); sfx.coin(); boardMode = pendingMode; openBoard(); }
+  try { await submitScore(pendingMode, name, pendingScore, pendingTotal); toast('登記成功！'); sfx.coin(); boardMode = pendingMode; openBoard(); }
   catch (e) { toast(e && e.message === 'too fast' ? '登記太快了，等幾秒再試' : '登記失敗，請再試一次'); }
 });
 document.getElementById('shareScoreBtn').addEventListener('click', () => {
-  share(`我在「抱抱鴨」${pendingMode === 'duo' ? '雙人合作' : ''}連續接住了 ${pendingScore} 隻小鴨！你能接幾隻？`, gameUrl());
+  share(`我在「抱抱鴨」${pendingMode === 'duo' ? '雙人合作' : ''}最多連續接住 ${pendingScore} 隻、總共接住 ${pendingTotal} 次小鴨！你能接幾隻？`, gameUrl());
 });
 document.getElementById('skipBtn').addEventListener('click', () => show(submitEl, false));
 
 async function openBoard() {
   show(menuEl, false); show(boardEl, true); show(actionBtn, false); show(submitEl, false); hideBubble();
-  document.querySelectorAll('#board .tab').forEach((b) => b.classList.toggle('on', b.dataset.m === boardMode));
+  document.querySelectorAll('#board .tab[data-m]').forEach((b) => b.classList.toggle('on', b.dataset.m === boardMode));
+  document.querySelectorAll('#board .ktab').forEach((b) => b.classList.toggle('on', b.dataset.kind === boardKind));
+  document.getElementById('boardNote').textContent = boardKind === 'total'
+    ? '一局裡總共接住幾次（稀有鴨彈起來救回也算，小鴨哭了才結束）'
+    : '一局裡最長的連續接住（中間不能靠彈起來救回）';
   boardList.textContent = '讀取中…';
   if (!(await hasServer())) { boardList.textContent = '排行榜要放上網站後才能用。'; return; }
   let rows = null;
-  try { rows = await topScores(boardMode, 20); } catch (e) { rows = null; }
+  try { rows = await topScores(boardMode, boardKind); } catch (e) { rows = null; }
   if (!rows) { boardList.textContent = '讀不到排行榜，請稍後再試。'; return; }
   if (!rows.length) { boardList.textContent = '還沒有人登記，快來當第一名！'; return; }
   boardList.textContent = '';
@@ -1882,13 +1906,14 @@ async function openBoard() {
     const li = document.createElement('li');
     const rank = document.createElement('span'); rank.className = 'rk'; if (i < 3) rank.innerHTML = icon(['gold', 'silver', 'bronze'][i], 26); else rank.textContent = String(i + 1);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.name;
-    const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = `${r.score} 隻`;
+    const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = boardKind === 'total' ? `${r.score} 次` : `${r.score} 隻`;
     li.append(rank, nm, sc);
     boardList.appendChild(li);
   });
 }
 document.getElementById('boardBtn').addEventListener('click', () => { boardMode = mode === 'duo' ? 'duo' : 'solo'; openBoard(); });
-document.querySelectorAll('#board .tab').forEach((b) => b.addEventListener('click', () => { boardMode = b.dataset.m; openBoard(); }));
+document.querySelectorAll('#board .tab[data-m]').forEach((b) => b.addEventListener('click', () => { boardMode = b.dataset.m; openBoard(); }));
+document.querySelectorAll('#board .ktab').forEach((b) => b.addEventListener('click', () => { boardKind = b.dataset.kind; openBoard(); }));
 document.getElementById('boardBack').addEventListener('click', openMenu);
 document.getElementById('boardShare').addEventListener('click', () => share('來玩「抱抱鴨・接住小鴨」，看誰接得最多！', gameUrl()));
 document.getElementById('inviteBtn').addEventListener('click', () => {
@@ -2361,7 +2386,8 @@ function animate() {
       smallY = 0; smallZ = GROUND_Z; small.visible = true;
       setState('miss');
       lastScore = Math.max(streak, runBest); runBest = 0;
-      streak = 0; updateScore();
+      lastTotal = caughtN;
+      streak = 0; caughtN = 0; updateScore();
       sfx.stopFall(); sfx.thud(); sfx.sadTrombone(0.2); sob(); hap.miss();
 
     }
@@ -2394,7 +2420,7 @@ function animate() {
       say('抱歉鴨', 0.9, 0.9, 250);
     }
     if (stateT > 1.4 && actionBtn.disabled) {
-      offerSubmit(lastScore);
+      offerSubmit(lastScore, lastTotal);
       if (mode !== 'solo') { if (!resultSent) { resultSent = true; sendResult(false); role = 'thrower'; } setButton('拋出鴨！', true, 'duck'); }
       else setButton('再來一次');
     }

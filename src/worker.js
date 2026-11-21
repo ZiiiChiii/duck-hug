@@ -25,17 +25,21 @@ export default {
       const board = env.BOARD.get(env.BOARD.idFromName('main'));
       if (req.method === 'GET') {
         const mode = url.searchParams.get('mode') === 'duo' ? 'duo' : 'solo';
-        return json({ rows: await board.top(mode, 20) });
+        const kind = url.searchParams.get('kind') === 'total' ? 'total' : 'streak';
+        return json({ rows: await board.top(mode, kind, 20) });
       }
       if (req.method === 'POST') {
         let body;
         try { body = await req.json(); } catch { return json({ error: 'bad json' }, 400); }
         const mode = body.mode === 'duo' ? 'duo' : body.mode === 'solo' ? 'solo' : null;
         const name = String(body.name || '').replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/g, '').trim().slice(0, 21);
+        // score = 最長連續接住；total = 這局總共接住幾次（沒有小鴨哭就一直累積）
         const score = Number(body.score);
+        const total = body.total === undefined ? score : Number(body.total);
         if (!mode || !name || !Number.isInteger(score) || score < 1 || score > 500) return json({ error: 'invalid' }, 400);
+        if (!Number.isInteger(total) || total < score || total > 3000) return json({ error: 'invalid' }, 400);
         const ip = req.headers.get('cf-connecting-ip') || 'unknown';
-        const ok = await board.add(mode, name, score, ip);
+        const ok = await board.add(mode, name, score, total, ip);
         return ok ? json({ ok: true }) : json({ error: 'too fast' }, 429);
       }
       return json({ error: 'method' }, 405);
@@ -105,24 +109,29 @@ export class Board extends DurableObject {
     const sql = ctx.storage.sql;
     sql.exec('CREATE TABLE IF NOT EXISTS scores (id INTEGER PRIMARY KEY AUTOINCREMENT, mode TEXT NOT NULL, name TEXT NOT NULL, score INTEGER NOT NULL, ts INTEGER NOT NULL)');
     sql.exec('CREATE INDEX IF NOT EXISTS scores_mode_score ON scores (mode, score)');
+    // 排行榜分兩種：streak（連續接住）、total（接住次數）。舊資料都算 streak
+    try { sql.exec("ALTER TABLE scores ADD COLUMN kind TEXT NOT NULL DEFAULT 'streak'"); } catch (e) { /* 已經有這個欄位 */ }
     sql.exec('CREATE TABLE IF NOT EXISTS limits (ip TEXT PRIMARY KEY, ts INTEGER NOT NULL)');
   }
 
-  top(mode, n) {
+  top(mode, kind, n) {
     return this.ctx.storage.sql
-      .exec('SELECT name, score, ts FROM scores WHERE mode = ? ORDER BY score DESC, ts ASC LIMIT ?', mode, n)
+      .exec('SELECT name, score, ts FROM scores WHERE mode = ? AND kind = ? ORDER BY score DESC, ts ASC LIMIT ?', mode, kind, n)
       .toArray();
   }
 
-  add(mode, name, score, ip) {
+  add(mode, name, score, total, ip) {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
     const last = sql.exec('SELECT ts FROM limits WHERE ip = ?', ip).toArray()[0];
     if (last && now - last.ts < 5000) return false; // 同一個網路 5 秒內只能登記一次
     sql.exec('INSERT OR REPLACE INTO limits (ip, ts) VALUES (?, ?)', ip, now);
-    sql.exec('INSERT INTO scores (mode, name, score, ts) VALUES (?, ?, ?, ?)', mode, name, score, now);
-    // 每個模式只保留前 300 名
-    sql.exec('DELETE FROM scores WHERE mode = ? AND id NOT IN (SELECT id FROM scores WHERE mode = ? ORDER BY score DESC, ts ASC LIMIT 300)', mode, mode);
+    sql.exec('INSERT INTO scores (mode, kind, name, score, ts) VALUES (?, ?, ?, ?, ?)', mode, 'streak', name, score, now);
+    sql.exec('INSERT INTO scores (mode, kind, name, score, ts) VALUES (?, ?, ?, ?, ?)', mode, 'total', name, total, now);
+    // 每個模式、每種排行只保留前 300 名
+    for (const kind of ['streak', 'total']) {
+      sql.exec('DELETE FROM scores WHERE mode = ? AND kind = ? AND id NOT IN (SELECT id FROM scores WHERE mode = ? AND kind = ? ORDER BY score DESC, ts ASC LIMIT 300)', mode, kind, mode, kind);
+    }
     sql.exec('DELETE FROM limits WHERE ts < ?', now - 3600_000);
     return true;
   }
