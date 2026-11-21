@@ -1093,48 +1093,28 @@ function animateDecor(t, dt) {
 }
 
 
-// ---------- 大鴨的目光：一直看著小鴨（抱著時往下看、飛上去時抬頭、哭的時候看著牠） ----------
-const HEAD_A = 0.62, HEAD_B = 0.69;            // 頭（橢圓）的水平、垂直半徑
+// ---------- 大鴨的目光：整隻轉身、仰頭或低頭去看小鴨（五官固定在原位，形狀不會變） ----------
 const gaze = { yaw: 0, pitch: 0 };
-const tmpG = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpQ2 = new THREE.Quaternion(), tmpE = new THREE.Euler();
-// 沿著方向 d 從頭的中心往外找「真正的身體表面」（梨形：低頭時會碰到比較胖的肚子，五官要跟著浮出來，不能陷進去）
-function surfR(d) {
-  const h = Math.hypot(d.x, d.z);
-  let lo = 0, hi = 2.2;
-  for (let i = 0; i < 22; i++) {
-    const mid = (lo + hi) / 2;
-    const y = 1.61 + mid * d.y;
-    const inside = y > 0 && y < 2.3 && mid * h < big.userData.r(y);
-    if (inside) lo = mid; else hi = mid;
-  }
-  return lo;
-}
-for (const f of big.userData.feats) { const d = f.p0.clone().normalize(); f.dir0 = d; f.off = f.p0.length() - surfR(d); }
+const tmpG = new THREE.Vector3();
 function updateGaze(dt) {
-  const face = big.userData.face;
+  const body = big.userData.body;
   // 要看的地方：小鴨的頭；小鴨在畫面上方看不到時（等著掉下來）就抬頭往上看
   let target;
-  if (!small.visible || smallY > 5.5) target = tmpG.set(0, 9, 1.2);
+  if (wardrobe.active) target = big.localToWorld(tmpG.set(0, 1.61, 5));   // 走去換衣服時看前面
+  else if (!small.visible || smallY > 5.5) target = tmpG.set(0, 9, 1.2);
   else target = small.localToWorld(tmpG.set(0, 1.1, 0));
-  face.worldToLocal(target);
+  big.worldToLocal(target);
+  target.y -= 1.61;                                  // 以頭的高度為準
   const horiz = Math.hypot(target.x, target.z);
-  let yaw = Math.atan2(target.x, Math.max(0.2, target.z));
-  let pitch = Math.atan2(target.y, Math.max(0.25, horiz));
-  yaw = THREE.MathUtils.clamp(yaw, -0.75, 0.75);
-  pitch = THREE.MathUtils.clamp(pitch, -0.42, 0.45); // 抬頭最多到這裡，臉還看得到
-  const k = Math.min(1, dt * 8);
+  const yaw = THREE.MathUtils.clamp(Math.atan2(target.x, Math.max(0.15, target.z)), -1.1, 1.1);
+  const pitch = THREE.MathUtils.clamp(Math.atan2(target.y, Math.max(0.3, horiz)), -0.6, 1.2);
+  const k = Math.min(1, dt * 6);
   gaze.yaw += (yaw - gaze.yaw) * k;
   gaze.pitch += (pitch - gaze.pitch) * k;
-  tmpQ.setFromEuler(tmpE.set(-gaze.pitch, gaze.yaw, 0, 'YXZ'));
-  // 五官沿著頭的表面滑動（不會陷進頭裡或浮在外面）
-  for (const f of big.userData.feats) {
-    const d = tmpG.copy(f.dir0).applyQuaternion(tmpQ);
-    f.o.position.copy(d).multiplyScalar(surfR(d) + f.off);
-    f.o.quaternion.copy(tmpQ).multiply(f.q0);
-  }
-  // 抬頭往上看時，整隻稍微往後仰
-  const lean = THREE.MathUtils.clamp(gaze.pitch - 0.1, 0, 0.4) * 0.25;
-  big.userData.body.rotation.x = -lean;
+  // 轉身：整隻身體一起轉（梨形左右對稱，轉起來不會變形）
+  body.rotation.y = gaze.yaw * 0.9;
+  // 抬頭往上看 → 身體往後仰；低頭看小鴨 → 稍微往前傾
+  body.rotation.x = gaze.pitch > 0 ? -Math.min(0.16, gaze.pitch * 0.14) : Math.min(0.1, -gaze.pitch * 0.12);
 }
 
 // 愛心
