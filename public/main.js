@@ -145,11 +145,25 @@ function makeWing(Lw, W, bend) {
   sh.quadraticCurveTo(-Lw - 0.045, -0.1, -Lw + 0.055, -0.125);
   sh.quadraticCurveTo(-Lw - 0.0, -0.19, -Lw + 0.12, -0.17);
   sh.bezierCurveTo(-0.36 * Lw / 0.6, -W * 1.15, -0.16 * Lw / 0.6, -W * 1.0, 0, -W * 0.75);
-  const depth = 0.05;
-  const flat = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: false, curveSegments: 16 });
+  // 有厚度的翅膀：圓角＋中間鼓起來，像一塊軟軟的羽毛墊
+  const depth = 0.05, bt = 0.045, bs = 0.04;
+  const flat = new THREE.ExtrudeGeometry(sh, {
+    depth, curveSegments: 16, steps: 1,
+    bevelEnabled: true, bevelThickness: bt, bevelSize: bs, bevelOffset: -bs, bevelSegments: 4,
+  });
   flat.translate(0, 0, -depth / 2);
+  {
+    const pos = flat.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const z = pos.getZ(i);
+      if (Math.abs(z) < depth / 2) continue;
+      const puff = 1 - Math.min(1, Math.abs(pos.getY(i)) / (W * 1.2));
+      const tipFade = THREE.MathUtils.clamp((Lw + pos.getX(i)) / 0.15, 0.35, 1); // 指尖比較薄
+      pos.setZ(i, z * (1 + 1.1 * puff * tipFade));
+    }
+  }
   const pts = sh.getPoints(16).map((p) => new THREE.Vector3(p.x, p.y, 0));
-  const rim = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 160, 0.03, 10, false);
+  const rim = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 160, 0.04, 12, false);
   // 中段往外拱、兩端貼著身體，像環抱
   for (const g of [flat, rim]) {
     const pos = g.attributes.position;
@@ -306,6 +320,7 @@ const hugWings = [-1, 1].map((side) => {
   scene.add(w);
   w.userData.side = side;
   w.userData.baseX = w.position.x;
+  w.userData.baseY = w.position.y;
   w.userData.baseQ = w.quaternion.clone();
   return w;
 });
@@ -473,6 +488,8 @@ let smallY = CATCH_Y, smallZ = HOLD_Z, smallX = 0, vel = 0, waitFor = 0;
 let wingsClosed = true;                   // 玩家按下接住後翅膀合起來
 let earlyCooldown = 0;                    // 太早按：0.1 秒後翅膀再打開，可以再按一次
 let wingOpen = 0;                         // 翅膀實際張開程度（平滑）
+let wingDY = 0, wingLift = 0, bigDip = 0;   // 拋鴨時翅膀的上下位置、抬起角度、大鴨蹲低
+let tossVel = 0, tossReleased = false, tossFromGround = false;
 let mode = 'solo';                        // solo / duo
 let role = null;                          // 雙人：thrower 拋鴨的人 / catcher 接鴨的人
 let resultSent = false;
@@ -482,7 +499,7 @@ const bestKey = () => (mode === 'duo' ? 'hugduck-best-duo' : 'hugduck-best');
 function loadBest() { try { best = +localStorage.getItem(bestKey()) || 0; } catch (e) { best = 0; } }
 loadBest();
 let speedMul = 1;
-const vmax = () => Math.min(3.0 + streak * 0.3, 6.0) * speedMul;
+const vmax = () => Math.min(Math.min(3.0 + streak * 0.3, 6.0) * speedMul, 8); // 最快不超過 8，避免衝刺鴨快到接不到
 
 // ---------- 掉落花招（接越多隻，解鎖越多、越常出現） ----------
 // unlock：連續接住幾隻後開始出現
@@ -525,7 +542,12 @@ function pickTrick() {
 }
 const has = (id) => trick && trick.some((t) => t.id === id);
 
-function setState(s) { if (s !== 'fall') sfx.stopFall(); state = s; stateT = 0; spoke = false; }
+function setState(s) {
+  if (s !== 'fall') sfx.stopFall();
+  if (s === 'toss') { tossReleased = false; tossFromGround = state === 'miss'; }
+  if (s !== 'toss') bigDip = 0;
+  state = s; stateT = 0; spoke = false;
+}
 function setButton(text, enabled = true, ic = null) { setLabel(actionBtn, text, ic, { size: 26 }); actionBtn.disabled = !enabled; }
 function updateScore() { scoreEl.textContent = `${mode === 'duo' ? '雙人合作 ' : ''}連續接住 ${streak} 隻　最佳 ${best} 隻`; }
 let toastTimer;
@@ -566,7 +588,6 @@ function startRound() {
   show(submitEl, false);
   resetLooks();
   setState('toss');
-  sfx.whooshUp(); hap.toss();
   setButton('接住！');
 }
 // 雙人：把鴨子拋給朋友
@@ -576,7 +597,6 @@ function doThrow() {
   resetLooks();
   pickTrick();
   setState('toss');
-  sfx.whooshUp(); hap.toss();
   setButton('拋出去了！', false);
 }
 function tryCatch() {
@@ -921,6 +941,7 @@ const qTmp = new THREE.Quaternion();
 const qTmp2 = new THREE.Quaternion();
 const yAxis = new THREE.Vector3(0, 1, 0);
 const zAxis = new THREE.Vector3(0, 0, 1);
+const xAxis = new THREE.Vector3(1, 0, 0);
 const bubbleAnchor = new THREE.Vector3(0.35, 2.45, -0.2);
 function updateBubble() {
   const v = bubbleAnchor.clone().project(camera);
@@ -932,23 +953,49 @@ const clock = new THREE.Clock();
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
-  stateT += dt;
+  stateT = window.__pauseT != null ? window.__pauseT : stateT + dt; // __pauseT 只給自動測試用
 
   squeeze = Math.max(0, squeeze - dt * 1.6);
   const sq = Math.sin(squeeze * Math.PI) * 0.12;
 
   // 呼吸
   const breathe = Math.sin(t * 2.2) * 0.012;
-  big.userData.body.scale.set(1 + sq * 0.5, 1 + breathe - sq * 0.4, 1 + sq * 0.5);
+  big.userData.body.scale.set(1 + sq * 0.5 + bigDip * 0.04, 1 + breathe - sq * 0.4 - bigDip * 0.06, 1 + sq * 0.5 + bigDip * 0.04);
   small.userData.body.scale.set(1 + sq * 0.6, 1 - breathe - sq * 0.5, 1 + sq * 0.6);
 
   let open = 0, flail = 0, smallTilt = 0, bigTilt = 0, crying = false, troubled = false;
   let bounce = 0;
 
-  if (state === 'toss') {            // 小鴨被拋上天
-    smallY += dt * 9; smallZ += (HOLD_Z - smallZ) * Math.min(1, dt * 6);
-    open = Math.min(1, stateT * 4); flail = 1;
-    if (smallY > 6.5) {
+  if (state === 'toss') {            // 拋鴨：抱著 → 往下蓄力 → 往上甩 → 放手，小鴨繼續往上飛，翅膀回到預備
+    const T_GRAB = tossFromGround ? 0.35 : 0, T_DIP = T_GRAB + 0.28, T_UP = T_DIP + 0.24, T_BACK = T_UP + 0.4;
+    const tt = stateT;
+    const ease = (x) => x * x * (3 - 2 * x);
+    if (tt < T_GRAB) {                 // 從地上把小鴨抱回懷裡
+      const k = ease(tt / T_GRAB);
+      smallY += (CATCH_Y - smallY) * Math.min(1, dt * 10);
+      smallZ += (HOLD_Z - smallZ) * Math.min(1, dt * 10);
+      open = 1 - k; wingDY = 0; wingLift = 0;
+    } else if (tt < T_DIP) {           // 往下蓄力
+      const k = ease((tt - T_GRAB) / (T_DIP - T_GRAB));
+      wingDY = -0.22 * k; wingLift = 0.25 * k; open = 0;
+      smallY = CATCH_Y + wingDY; smallZ = HOLD_Z;
+      bigDip = k;
+    } else if (tt < T_UP) {            // 往上甩
+      const k = (tt - T_DIP) / (T_UP - T_DIP);
+      const e = 1 - (1 - k) * (1 - k);
+      wingDY = -0.22 + 0.72 * e; wingLift = 0.25 - 0.85 * e; open = 0;
+      smallY = CATCH_Y + wingDY; smallZ = HOLD_Z;
+      bigDip = 1 - k * 1.6;
+      tossVel = 9;
+    } else {                           // 放手：小鴨繼續往上飛，翅膀慢慢回到預備位置
+      if (!tossReleased) { tossReleased = true; sfx.whooshUp(); hap.toss(); }
+      const k = ease(Math.min(1, (tt - T_UP) / (T_BACK - T_UP)));
+      wingDY = 0.5 * (1 - k); wingLift = -0.6 * (1 - k); open = k;
+      smallY += tossVel * dt; tossVel = Math.max(6, tossVel - 4 * dt);
+      flail = 1; bigDip = 0;
+    }
+    if (smallY > 6.5 && tossReleased) {
+      wingDY = 0; wingLift = 0;
       if (mode === 'duo') { setState('sent'); sendThrow(); }
       else {
         setState('wait'); waitFor = 0.6 + Math.random() * 1.2; wingsClosed = false; vel = 0;
@@ -1091,8 +1138,10 @@ function animate() {
   for (const w of hugWings) {
     const o = wingOpen;
     w.position.x = w.userData.baseX - w.userData.side * sq * 0.25 + w.userData.side * o * 0.12;
+    w.position.y = w.userData.baseY + wingDY;
     qTmp.setFromAxisAngle(yAxis, w.userData.side * o * 0.95);
-    w.quaternion.copy(qTmp).multiply(w.userData.baseQ);
+    qTmp2.setFromAxisAngle(xAxis, wingLift);
+    w.quaternion.copy(qTmp).multiply(qTmp2).multiply(w.userData.baseQ);
   }
   if (bubble.classList.contains('show')) updateBubble();
 
