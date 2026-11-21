@@ -76,6 +76,22 @@ const ICONS = {
   crown: `<path d="M4 18l-1-10 5 4 4-7 4 7 5-4-1 10z" fill="#ffc94a" ${S}/><circle cx="12" cy="14.5" r="1.4" fill="#e8524a" ${S}/>`,
   wizard: `<path d="M3 19.5h18" fill="none" stroke="#7b5cd6" stroke-width="3.2" stroke-linecap="round"/><path d="M3 19.5h18" fill="none" ${S}/><path d="M6 19L13 3l4 16z" fill="#7b5cd6" ${S}/><path d="M12 11l.7 1.4 1.5.2-1.1 1 .3 1.5-1.4-.7-1.4.7.3-1.5-1.1-1 1.5-.2z" fill="#ffc94a"/>`,
   beanie: `<path d="M5 15a7 7 0 0 1 14 0z" fill="#5cbf6a" ${S}/><rect x="4" y="14.5" width="16" height="4" rx="1.5" fill="#fff4dc" ${S}/><circle cx="12" cy="5.5" r="2" fill="#fff4dc" ${S}/>`,
+  xtree: `<path d="M12 2.5l1 2 2.2.3-1.6 1.5.4 2.2-2-1-2 1 .4-2.2L8.8 4.8 11 4.5z" fill="#ffc94a" ${S}/>
+    <path d="M12 7l4.5 5h-2l4 5H5.5l4-5h-2z" fill="#3f9e5a" ${S}/>
+    <path d="M10.5 17h3v3.5h-3z" fill="#9a6a43" ${S}/>
+    <circle cx="10" cy="13.5" r="1" fill="#e8524a"/><circle cx="14" cy="15.2" r="1" fill="#5aa9e6"/>`,
+  snowman: `<circle cx="12" cy="16" r="5" fill="${W}" ${S}/><circle cx="12" cy="8.5" r="3.5" fill="${W}" ${S}/>
+    <path d="M8.5 5.5h7M9.8 5.5V2.5h4.4v3" fill="#2b2b2b" ${S}/>
+    <circle cx="10.8" cy="8" r=".6" fill="${K}"/><circle cx="13.2" cy="8" r=".6" fill="${K}"/>
+    <path d="M12 9.2l2.6.8-2.6.6z" fill="#ff8a3d"/><path d="M8.7 11.5c2 1 4.6 1 6.6 0" fill="none" stroke="#e8524a" stroke-width="2" stroke-linecap="round"/>`,
+  gift: `<rect x="4" y="10" width="16" height="10" rx="1" fill="#e8524a" ${S}/><rect x="3" y="7" width="18" height="4" rx="1" fill="#e8524a" ${S}/>
+    <path d="M12 7v13" fill="none" stroke="#ffd24a" stroke-width="2.4"/><path d="M12 7c-2-4-6-3-4 0zM12 7c2-4 6-3 4 0z" fill="#ffd24a" ${S}/>`,
+  lights: `<path d="M2 6c5 4 15 4 20 0" fill="none" ${S}/>
+    <path d="M6 8.3v1.5M12 9.5V11M18 8.3v1.5" fill="none" ${S}/>
+    <ellipse cx="6" cy="12" rx="1.7" ry="2.3" fill="#ff5a5a" ${S}/><ellipse cx="12" cy="13.2" rx="1.7" ry="2.3" fill="#ffd24a" ${S}/><ellipse cx="18" cy="12" rx="1.7" ry="2.3" fill="#5cd67a" ${S}/>`,
+  snow: `<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" fill="none" stroke="#5aa9e6" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M9.5 4.5L12 6.5l2.5-2M9.5 19.5L12 17.5l2.5 2" fill="none" stroke="#5aa9e6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
+  scene: `<path d="M3 19h18" fill="none" ${S}/><path d="M6 19l3-7 3 7z" fill="#3f9e5a" ${S}/><circle cx="16" cy="15.5" r="3.5" fill="${W}" ${S}/><circle cx="17" cy="6" r="2.2" fill="#ffc94a" ${S}/>`,
   heart: `<path d="M12 20s-7.5-4.5-7.5-10A4 4 0 0 1 12 7.5 4 4 0 0 1 19.5 10C19.5 15.5 12 20 12 20z" fill="${P}" ${S}/>`,
 };
 

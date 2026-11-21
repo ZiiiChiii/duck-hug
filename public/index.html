@@ -122,6 +122,9 @@
                 text-shadow: 0 2px 0 #fff, 0 -2px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff; pointer-events: none; animation: coinFloat 1.1s ease-out forwards; }
   .coin-float.big { font-size: 24px; color: #e8524a; }
   @keyframes coinFloat { 0% { opacity: 0; transform: translateY(6px) scale(.6); } 20% { opacity: 1; transform: translateY(0) scale(1.15); } 100% { opacity: 0; transform: translateY(-26px) scale(1); } }
+  .shoplist li.bundle { background: #fff4dc; border-radius: 12px; padding: 7px 6px; border-bottom: 0; margin-bottom: 4px; }
+  .shoplist .sh-tx small s { color: #b0a796; font-weight: 600; margin-left: 2px; }
+  .tabs .tab { font-size: 14px !important; padding: 8px 4px !important; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 15px; }
 </style>
 <script type="importmap">
@@ -178,7 +181,7 @@
 <div class="panel hidden" id="shop">
   <h2><span data-ic="shop" data-size="26"></span>鴨商城</h2>
   <div class="msg shop-coins" id="shopCoins"></div>
-  <div class="tabs"><button class="tab on" data-k="big">大鴨造型</button><button class="tab" data-k="small">小鴨夥伴</button></div>
+  <div class="tabs"><button class="tab on" data-k="big">大鴨造型</button><button class="tab" data-k="small">小鴨夥伴</button><button class="tab" data-k="decor">場景佈置</button></div>
   <div class="msg" id="shopHint"></div>
   <ul class="shoplist" id="shopList"></ul>
   <button class="link" id="shopBack">← 返回</button>
