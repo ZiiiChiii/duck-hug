@@ -1097,7 +1097,18 @@ function animateDecor(t, dt) {
 const HEAD_A = 0.62, HEAD_B = 0.69;            // 頭（橢圓）的水平、垂直半徑
 const gaze = { yaw: 0, pitch: 0 };
 const tmpG = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpQ2 = new THREE.Quaternion(), tmpE = new THREE.Euler();
-const surfR = (d) => 1 / Math.sqrt((d.x * d.x + d.z * d.z) / (HEAD_A * HEAD_A) + (d.y * d.y) / (HEAD_B * HEAD_B));
+// 沿著方向 d 從頭的中心往外找「真正的身體表面」（梨形：低頭時會碰到比較胖的肚子，五官要跟著浮出來，不能陷進去）
+function surfR(d) {
+  const h = Math.hypot(d.x, d.z);
+  let lo = 0, hi = 2.2;
+  for (let i = 0; i < 22; i++) {
+    const mid = (lo + hi) / 2;
+    const y = 1.61 + mid * d.y;
+    const inside = y > 0 && y < 2.3 && mid * h < big.userData.r(y);
+    if (inside) lo = mid; else hi = mid;
+  }
+  return lo;
+}
 for (const f of big.userData.feats) { const d = f.p0.clone().normalize(); f.dir0 = d; f.off = f.p0.length() - surfR(d); }
 function updateGaze(dt) {
   const face = big.userData.face;
@@ -1110,7 +1121,7 @@ function updateGaze(dt) {
   let yaw = Math.atan2(target.x, Math.max(0.2, target.z));
   let pitch = Math.atan2(target.y, Math.max(0.25, horiz));
   yaw = THREE.MathUtils.clamp(yaw, -0.75, 0.75);
-  pitch = THREE.MathUtils.clamp(pitch, -0.55, 0.45); // 抬頭最多到這裡，臉還看得到
+  pitch = THREE.MathUtils.clamp(pitch, -0.42, 0.45); // 抬頭最多到這裡，臉還看得到
   const k = Math.min(1, dt * 8);
   gaze.yaw += (yaw - gaze.yaw) * k;
   gaze.pitch += (pitch - gaze.pitch) * k;
