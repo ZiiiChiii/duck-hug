@@ -440,7 +440,7 @@ const BUDDIES = {
   white: () => smallDuck(WHITE), // 原本那隻小白鴨
 };
 // 每隻小鴨都有自己固定的位置（被抱走時位置空著，回來時站回原位）
-const BUDDY_SLOTS = [[-1.35, -0.55], [-0.85, -1.4], [-1.85, -1.25], [-0.25, -2.1], [-2.25, -0.35], [-1.4, -2.4], [-2.6, -1.7]]; // 右後方留給去換衣間的路
+const BUDDY_SLOTS = [[-1.45, -0.55], [-1.05, -1.55], [-2.05, -1.3], [-0.75, -2.55], [-2.45, -0.3], [-1.75, -2.4], [-2.75, -1.95]]; // 右後方留給去換衣間的路
 const buddyObjs = [];
 let heldId = 'white';                   // 現在抱在懷裡的是哪一隻
 let smallIds = [];                      // 擁有的小鴨（含原本的小白鴨），順序決定站位
@@ -531,47 +531,142 @@ const BOOTH_FRONT = booth.localToWorld(new THREE.Vector3(0, 0, 1.4));
 const BOOTH_IN = booth.localToWorld(new THREE.Vector3(0, 0, 0.1));
 const HOME = new THREE.Vector3(0, 0, 0);
 
-// 走去換衣間 → 拉上布簾換衣服 → 走回來
-const wardrobe = { active: false, t: 0, next: null, swapped: false, done: null, rustle: 0 };
-function startWardrobe(nextOutfit, done) {
-  Object.assign(wardrobe, { active: true, t: 0, next: nextOutfit, swapped: false, done, rustle: 0 });
-  controls.autoRotate = false;
-}
 const lerp3 = (a, b, k) => new THREE.Vector3().lerpVectors(a, b, k);
 const ease2 = (x) => x * x * (3 - 2 * x);
 function faceToward(from, to) { return Math.atan2(to.x - from.x, to.z - from.z); }
+
+// ---------- 走路的路線規劃：避開大鴨、其他小鴨、換衣間，不會互相穿過去 ----------
+const GRID = 0.1, GX0 = -4.5, GX1 = 4.5, GZ0 = -5, GZ1 = 3;
+const NX = Math.round((GX1 - GX0) / GRID) + 1, NZ = Math.round((GZ1 - GZ0) / GRID) + 1;
+function boothObstacles() {
+  const out = [];
+  for (const lx of [-0.75, -0.25, 0.25, 0.75]) for (const lz of [-0.55, 0, 0.5]) {
+    const w = booth.localToWorld(new THREE.Vector3(lx, 0, lz));
+    out.push({ x: w.x, z: w.z, r: 0.4 });
+  }
+  return out;
+}
+function blockedAt(x, z, radius, obs) {
+  for (const o of obs) { const dx = x - o.x, dz = z - o.z, rr = o.r + radius; if (dx * dx + dz * dz < rr * rr) return true; }
+  return false;
+}
+function lineFree(a, b, radius, obs) {
+  const n = Math.ceil(a.distanceTo(b) / 0.05);
+  for (let i = 1; i < n; i++) { const k = i / n; if (blockedAt(a.x + (b.x - a.x) * k, a.z + (b.z - a.z) * k, radius, obs)) return false; }
+  return true;
+}
+// A* 找路，再把多餘的轉角拉直
+function planPathOnce(from, to, radius, obs) {
+  const cell = (x, z) => [Math.round((x - GX0) / GRID), Math.round((z - GZ0) / GRID)];
+  const [sx, sz] = cell(from.x, from.z), [tx, tz] = cell(to.x, to.z);
+  const idx = (i, j) => j * NX + i;
+  const free = (i, j) => i >= 0 && j >= 0 && i < NX && j < NZ &&
+    ((Math.abs(i - sx) <= 3 && Math.abs(j - sz) <= 3) || (Math.abs(i - tx) <= 3 && Math.abs(j - tz) <= 3) || !blockedAt(GX0 + i * GRID, GZ0 + j * GRID, radius, obs));
+  const g = new Float32Array(NX * NZ).fill(Infinity), came = new Int32Array(NX * NZ).fill(-1), closed = new Uint8Array(NX * NZ);
+  const open = [[0, sx, sz]];
+  g[idx(sx, sz)] = 0;
+  const h = (i, j) => Math.hypot(i - tx, j - tz);
+  let found = false, guard = 0;
+  while (open.length && guard++ < 60000) {
+    let bi = 0; for (let k = 1; k < open.length; k++) if (open[k][0] < open[bi][0]) bi = k;
+    const [, i, j] = open.splice(bi, 1)[0];
+    const id = idx(i, j);
+    if (closed[id]) continue;
+    closed[id] = 1;
+    if (i === tx && j === tz) { found = true; break; }
+    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+      if (!di && !dj) continue;
+      const ni = i + di, nj = j + dj;
+      if (!free(ni, nj)) continue;
+      const nid = idx(ni, nj);
+      const ng = g[id] + (di && dj ? 1.414 : 1);
+      if (ng < g[nid]) { g[nid] = ng; came[nid] = id; open.push([ng + h(ni, nj), ni, nj]); }
+    }
+  }
+  if (!found) return null;
+  const raw = [];
+  for (let c = idx(tx, tz); c !== -1; c = came[c]) raw.push(new THREE.Vector3(GX0 + (c % NX) * GRID, 0, GZ0 + Math.floor(c / NX) * GRID));
+  raw.reverse();
+  raw[0] = from.clone(); raw[raw.length - 1] = to.clone();
+  const pts = [raw[0]];
+  let anchor = 0;
+  for (let k = 2; k < raw.length; k++) {
+    if (!lineFree(raw[anchor], raw[k], radius * 0.9, obs)) { pts.push(raw[k - 1]); anchor = k - 1; }
+  }
+  pts.push(raw[raw.length - 1]);
+  return pts;
+}
+// 找不到路就把身體當小一點再找一次（最後才直接走）
+function planPath(from, to, radius, obs) {
+  for (const f of [1, 0.85, 0.7, 0.5]) { const r = planPathOnce(from, to, radius * f, obs); if (r) return r; }
+  return [from.clone(), to.clone()];
+}
+function pathLength(pts) { let L = 0; for (let i = 1; i < pts.length; i++) L += pts[i].distanceTo(pts[i - 1]); return L; }
+function pathAt(pts, d) {
+  for (let i = 1; i < pts.length; i++) {
+    const seg = pts[i].distanceTo(pts[i - 1]);
+    if (d <= seg || i === pts.length - 1) {
+      const k = seg ? Math.min(1, d / seg) : 1;
+      return { pos: new THREE.Vector3().lerpVectors(pts[i - 1], pts[i], k), dir: Math.atan2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z) };
+    }
+    d -= seg;
+  }
+  return { pos: pts[pts.length - 1].clone(), dir: 0 };
+}
+// 慢慢轉向（不會瞬間轉身）
+function turnToward(cur, target, dt, speed = 8) {
+  let d = target - cur;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return cur + d * Math.min(1, dt * speed);
+}
+const buddyObstacles = (except = []) => buddyObjs.filter((d) => !except.includes(d)).map((d) => ({ x: d.position.x, z: d.position.z, r: 0.42 }));
+
+// ---------- 走去換衣間 → 拉上布簾換衣服 → 走回來（沿著規劃好的路線，繞開小鴨） ----------
+const BIG_R = 1.15;   // 大鴨＋翅膀的半徑
+const wardrobe = { active: false, t: 0, next: null, swapped: false, done: null, rustle: 0 };
+function startWardrobe(nextOutfit, done) {
+  const obs = [...buddyObstacles(), ...boothObstacles()];
+  const path = planPath(HOME, BOOTH_FRONT, BIG_R, obs);
+  const L = pathLength(path);
+  Object.assign(wardrobe, { active: true, t: 0, next: nextOutfit, swapped: false, done, rustle: 0, ta: false, path, walk: Math.max(1.2, L / 1.3), rot: 0 });
+  controls.autoRotate = false;
+}
 function animateWardrobe(dt, t) {
   const curtain = booth.userData.curtain;
   if (!wardrobe.active) { curtain.scale.x += (1 - curtain.scale.x) * Math.min(1, dt * 6); curtain.rotation.z = 0; return; }
   wardrobe.t += dt;
-  const w = wardrobe.t;
-  let pos = HOME, rotY = 0, scl = 1, curtainOpen = 0, waddle = false, shake = 0;
-  if (w < 1.4) { const k = ease2(w / 1.4); pos = lerp3(HOME, BOOTH_FRONT, k); rotY = faceToward(HOME, BOOTH_FRONT); waddle = true; }
-  else if (w < 1.8) { pos = BOOTH_FRONT; rotY = faceToward(HOME, BOOTH_FRONT); curtainOpen = (w - 1.4) / 0.4; }
-  else if (w < 2.4) { const k = ease2((w - 1.8) / 0.6); pos = lerp3(BOOTH_FRONT, BOOTH_IN, k); rotY = faceToward(BOOTH_FRONT, BOOTH_IN); scl = 1 - 0.7 * k; curtainOpen = 1; waddle = true; }
-  else if (w < 2.7) { pos = BOOTH_IN; scl = 0; curtainOpen = 1 - (w - 2.4) / 0.3; }
-  else if (w < 4.0) {
+  const w = wardrobe.t, W = wardrobe.walk, P = wardrobe.path, L = pathLength(P);
+  const T1 = W, T2 = T1 + 0.4, T3 = T2 + 0.6, T4 = T3 + 0.3, T5 = T4 + 1.3, T6 = T5 + 0.4, T7 = T6 + 0.6, T8 = T7 + W, T9 = T8 + 0.45;
+  let pos = HOME, targetRot = 0, scl = 1, curtainOpen = 0, waddleOn = false, shake = 0;
+  const intoDoor = faceToward(BOOTH_FRONT, BOOTH_IN);
+  if (w < T1) { const at = pathAt(P, ease2(w / T1) * L); pos = at.pos; targetRot = at.dir; waddleOn = true; }
+  else if (w < T2) { pos = BOOTH_FRONT; targetRot = intoDoor; curtainOpen = (w - T1) / 0.4; }
+  else if (w < T3) { const k = ease2((w - T2) / 0.6); pos = lerp3(BOOTH_FRONT, BOOTH_IN, k); targetRot = intoDoor; scl = 1 - 0.7 * k; curtainOpen = 1; waddleOn = true; }
+  else if (w < T4) { pos = BOOTH_IN; scl = 0; curtainOpen = 1 - (w - T3) / 0.3; }
+  else if (w < T5) {
     pos = BOOTH_IN; scl = 0; shake = 1;
     wardrobe.rustle -= dt;
     if (wardrobe.rustle <= 0) { wardrobe.rustle = 0.22; sfx.swish(); }
-    if (w > 3.4 && !wardrobe.swapped) { wardrobe.swapped = true; wearOutfit(wardrobe.next); }
+    if (w > T4 + 0.7 && !wardrobe.swapped) { wardrobe.swapped = true; wearOutfit(wardrobe.next); }
   }
-  else if (w < 4.4) { pos = BOOTH_IN; scl = 0; curtainOpen = (w - 4.0) / 0.4; if (!wardrobe.popped) { wardrobe.popped = true; } }
-  else if (w < 5.0) {
-    const k = ease2((w - 4.4) / 0.6); pos = lerp3(BOOTH_IN, BOOTH_FRONT, k); rotY = faceToward(BOOTH_IN, BOOTH_FRONT); scl = 0.3 + 0.7 * k; curtainOpen = 1; waddle = true;
+  else if (w < T6) { pos = BOOTH_IN; scl = 0; curtainOpen = (w - T5) / 0.4; wardrobe.rot = intoDoor + Math.PI; }
+  else if (w < T7) {
+    const k = ease2((w - T6) / 0.6); pos = lerp3(BOOTH_IN, BOOTH_FRONT, k); targetRot = intoDoor + Math.PI; scl = 0.3 + 0.7 * k; curtainOpen = 1; waddleOn = true;
     if (!wardrobe.ta) { wardrobe.ta = true; sfx.pop(); sfx.sparkle(); hap.caught(); popHearts(); }
   }
-  else if (w < 6.4) { const k = ease2((w - 5.0) / 1.4); pos = lerp3(BOOTH_FRONT, HOME, k); rotY = faceToward(BOOTH_FRONT, HOME); waddle = true; curtainOpen = Math.max(0, 1 - (w - 5.0) / 0.5); }
-  else if (w < 6.8) { const k = ease2((w - 6.4) / 0.4); pos = HOME; rotY = faceToward(BOOTH_FRONT, HOME) * (1 - k); }
+  else if (w < T8) { const at = pathAt(P, (1 - ease2((w - T7) / W)) * L); pos = at.pos; targetRot = at.dir + Math.PI; waddleOn = true; curtainOpen = Math.max(0, 1 - (w - T7) / 0.5); }
+  else if (w < T9) { pos = HOME; targetRot = 0; }
   else {
-    wardrobe.active = false; wardrobe.ta = false; wardrobe.popped = false;
+    wardrobe.active = false;
     pairRoot.position.set(0, 0, 0); pairRoot.rotation.set(0, 0, 0); pairRoot.scale.setScalar(1); pairRoot.visible = true;
     if (wardrobe.done) wardrobe.done();
     return;
   }
+  wardrobe.rot = turnToward(wardrobe.rot, targetRot, dt, scl < 0.05 ? 100 : 7);
   pairRoot.position.copy(pos);
-  pairRoot.position.y = waddle ? Math.abs(Math.sin(w * 13)) * 0.06 : 0;
-  pairRoot.rotation.set(0, rotY, waddle ? Math.sin(w * 13) * 0.07 : 0);
+  pairRoot.position.y = waddleOn ? Math.abs(Math.sin(w * 13)) * 0.06 : 0;
+  pairRoot.rotation.set(0, wardrobe.rot, waddleOn ? Math.sin(w * 13) * 0.07 : 0);
   pairRoot.scale.setScalar(Math.max(scl, 0.001));
   pairRoot.visible = scl > 0.02;
   curtain.scale.x = Math.max(0.18, 1 - 0.82 * THREE.MathUtils.clamp(curtainOpen, 0, 1));
@@ -579,62 +674,67 @@ function animateWardrobe(dt, t) {
   curtain.children.forEach((f, i) => { f.rotation.z = shake ? Math.sin(t * 22 + i) * 0.05 : 0; });
 }
 
-
-// ---------- 換抱另一隻小鴨：放下 → 兩隻搖搖晃晃走過去交換 → 抱起來 ----------
-const swap = { active: false, t: 0, open: 0, buddy: null, home: null, from: null, done: null, newId: null };
-const FRONT_SPOT = new THREE.Vector3(0, 0, 1.4);
+// ---------- 換抱另一隻小鴨：放下 → 懷裡那隻先繞過大鴨走回位置 → 被選中的那隻再走過來 → 抱起來 ----------
+// 兩隻輪流走、路線都繞開大鴨和其他小鴨，不會互相穿過去
+const swap = { active: false, t: 0, open: 0 };
+const PUT_DOWN = new THREE.Vector3(0, 0, 1.55);     // 大鴨前面放下的位置
+const BIG_BODY = { x: 0, z: -0.2, r: 1.02 };
+const OPEN_WINGS = [{ x: -1.3, z: 0.55, r: 0.35 }, { x: 1.3, z: 0.55, r: 0.35 }];
+const SMALL_R = 0.36;
 function startSwap(newId, done) {
   const buddy = buddyObjs.find((b) => b.userData.id === newId);
   if (!buddy || swap.active || wardrobe.active) return false;
   const [hx, hz] = slotOf(heldId);
-  Object.assign(swap, {
-    active: true, t: 0, open: 1, buddy, newId, done,
-    home: new THREE.Vector3(hx, 0, hz),            // 懷裡那隻要回去的位置
-    from: buddy.position.clone(),                  // 被選中那隻原本站的位置
-    heldStart: small.position.clone(),
-  });
+  const home = new THREE.Vector3(hx, 0, hz);
+  const from = buddy.position.clone(); from.y = 0;
+  const pathA = planPath(PUT_DOWN, home, SMALL_R, [BIG_BODY, ...OPEN_WINGS, ...buddyObstacles(), ...boothObstacles()]);
+  const pathB = planPath(from, PUT_DOWN, SMALL_R, [BIG_BODY, ...OPEN_WINGS, ...buddyObstacles([buddy]), { x: home.x, z: home.z, r: 0.42 }, ...boothObstacles()]);
+  const tA = Math.max(0.9, pathLength(pathA) / 1.4), tB = Math.max(0.9, pathLength(pathB) / 1.4);
+  Object.assign(swap, { active: true, t: 0, open: 1, buddy, newId, done, home, from, pathA, pathB, tA, tB, heldStart: small.position.clone(), rotA: small.rotation.y, rotB: buddy.rotation.y });
   buddy.userData.busy = true;
   controls.autoRotate = false;
   return true;
-}
-function waddle(obj, from, to, k, t, baseScaleFrom, baseScaleTo) {
-  obj.position.lerpVectors(from, to, k);
-  obj.position.y = Math.abs(Math.sin(t * 12)) * 0.05 * obj.scale.x;
-  obj.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
-  obj.rotation.z = Math.sin(t * 12) * 0.12;
-  obj.scale.setScalar(baseScaleFrom + (baseScaleTo - baseScaleFrom) * k);
 }
 function animateSwap(dt, t) {
   if (!swap.active) return;
   swap.t += dt;
   const w = swap.t, b = swap.buddy;
-  const DOWN = 0.6, WALK = 2.4, UP = 3.0;
-  const putDown = new THREE.Vector3(0, 0, 1.4);
-  if (w < DOWN) {                                   // 大鴨把懷裡的小鴨放到地上
+  const DOWN = 0.6, A_END = DOWN + swap.tA, B_START = A_END + 0.15, B_END = B_START + swap.tB, UP = B_END + 0.6, END = UP + 0.05;
+  const step = (obj, path, k0, rotKey, phase) => {
+    const k = ease2(THREE.MathUtils.clamp(k0, 0, 1));
+    const at = pathAt(path, k * pathLength(path));
+    obj.position.copy(at.pos);
+    const moving = k0 > 0 && k0 < 1;
+    obj.position.y = moving ? Math.abs(Math.sin(t * 12 + phase)) * 0.04 : 0;
+    swap[rotKey] = turnToward(swap[rotKey], at.dir, dt, 9);
+    obj.rotation.set(0, swap[rotKey], moving ? Math.sin(t * 12 + phase) * 0.12 : 0);
+    if (moving && Math.floor(w * 4) !== Math.floor((w - dt) * 4)) sfx.flap();
+  };
+  if (w < DOWN) {
     const k = ease2(w / DOWN);
-    small.position.lerpVectors(swap.heldStart, putDown, k);
+    small.position.lerpVectors(swap.heldStart, PUT_DOWN, k);
     small.rotation.z = 0;
     swap.open = k;
-  } else if (w < WALK) {                            // 兩隻搖搖晃晃走過去交換
-    const k = ease2((w - DOWN) / (WALK - DOWN));
+  } else if (w < A_END) {
     swap.open = 1;
-    // 懷裡那隻：走回自己的位置（在大鴨的座標裡換算成場景位置）
-    small.position.lerpVectors(putDown, swap.home, k);
-    small.position.y = Math.abs(Math.sin(t * 12 + 1)) * 0.04;
-    small.rotation.y = Math.atan2(swap.home.x - putDown.x, swap.home.z - putDown.z);
-    small.rotation.z = Math.sin(t * 12 + 1) * 0.12;
-    small.scale.setScalar(0.74 - 0.24 * k);
-    waddle(b, swap.from, FRONT_SPOT, k, t, 0.5, 0.74);
-    if (Math.floor(w * 4) !== Math.floor((w - dt) * 4)) sfx.flap();
-  } else if (w < UP) {                              // 大鴨把新的小鴨抱起來
-    const k = ease2((w - WALK) / (UP - WALK));
-    small.position.copy(swap.home); small.rotation.set(0, faceCenter(swap.home.x, swap.home.z), 0); small.scale.setScalar(0.5);
-    b.position.set(0, CATCH_Y * k, FRONT_SPOT.z + (HOLD_Z - FRONT_SPOT.z) * k);
-    b.rotation.set(0, 0.12 * k + b.rotation.y * (1 - k), 0);
+    const k = (w - DOWN) / swap.tA;
+    step(small, swap.pathA, k, 'rotA', 1);
+    small.scale.setScalar(0.74 - 0.24 * ease2(Math.min(1, k)));
+  } else if (w < B_END) {
+    small.position.copy(swap.home); small.position.y = 0; small.scale.setScalar(0.5);
+    swap.rotA = turnToward(swap.rotA, faceCenter(swap.home.x, swap.home.z), dt, 6);
+    small.rotation.set(0, swap.rotA, 0);
+    const k = (w - B_START) / swap.tB;
+    step(b, swap.pathB, k, 'rotB', 2);
+    b.scale.setScalar(0.5 + 0.24 * ease2(THREE.MathUtils.clamp(k, 0, 1)));
+  } else if (w < UP) {
+    const k = ease2((w - B_END) / 0.6);
+    swap.rotB = turnToward(swap.rotB, 0.12, dt, 10);
+    b.position.set(0, CATCH_Y * k, PUT_DOWN.z + (HOLD_Z - PUT_DOWN.z) * k);
+    b.rotation.set(0, swap.rotB, 0);
     b.scale.setScalar(0.74);
     swap.open = 1 - k;
-  } else {
-    // 交換身分：剛走回去的那隻變成站在後面的夥伴，新來的變成懷裡的小鴨
+  } else if (w >= END) {
     const oldHeld = small, oldId = heldId;
     ducks.remove(oldHeld);
     oldHeld.position.copy(swap.home); oldHeld.position.y = 0;
@@ -655,6 +755,7 @@ function animateSwap(dt, t) {
     if (swap.done) swap.done();
   }
 }
+
 
 // 愛心
 const heartTex = (() => {
@@ -1851,4 +1952,4 @@ document.getElementById('loading').remove();
 animate();
 
 // 測試用：讓自動測試讀得到遊戲狀態
-window.__duck = { get dex() { return dex; }, get state() { return state; }, get rel() { return smallY - CATCH_Y; }, get vel() { return vel; }, setStreak(n) { streak = n; updateScore(); }, get trick() { return trick && trick.map((t) => t.id); } };
+window.__duck = { get scene3d() { return { small, buddyObjs, pairRoot, swap, wardrobe }; }, get dex() { return dex; }, get state() { return state; }, get rel() { return smallY - CATCH_Y; }, get vel() { return vel; }, setStreak(n) { streak = n; updateScore(); }, get trick() { return trick && trick.map((t) => t.id); } };
