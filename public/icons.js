@@ -92,6 +92,12 @@ const ICONS = {
   snow: `<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" fill="none" stroke="#5aa9e6" stroke-width="2.2" stroke-linecap="round"/>
     <path d="M9.5 4.5L12 6.5l2.5-2M9.5 19.5L12 17.5l2.5 2" fill="none" stroke="#5aa9e6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
   scene: `<path d="M3 19h18" fill="none" ${S}/><path d="M6 19l3-7 3 7z" fill="#3f9e5a" ${S}/><circle cx="16" cy="15.5" r="3.5" fill="${W}" ${S}/><circle cx="17" cy="6" r="2.2" fill="#ffc94a" ${S}/>`,
+  santa: `<path d="M5 17c1-7 5-11 10-11 3 0 4 3 5 6" fill="#d8342c" ${S}/><rect x="3.5" y="16" width="14" height="4" rx="2" fill="${W}" ${S}/><circle cx="20" cy="13" r="2" fill="${W}" ${S}/>`,
+  walk: `<ellipse cx="8" cy="15" rx="2.6" ry="3.5" fill="${O}" ${S}/><ellipse cx="16" cy="9" rx="2.6" ry="3.5" fill="${O}" ${S}/><path d="M3 20h4M15 15h5" fill="none" ${S}/>`,
+  hop: `<path d="M7 21h10" fill="none" ${S}/><ellipse cx="12" cy="11" rx="4.5" ry="5" fill="${W}" ${S}/><path d="M5 6l-2-2M19 6l2-2M12 3V1" fill="none" ${S}/>`,
+  spin: `<path d="M19 12a7 7 0 1 1-2.1-5" fill="none" ${S}/><path d="M17.5 2.8l-.6 4.5-4.4-.8" fill="none" ${S}/>`,
+  doze: `<path d="M4 9h5l-5 6h5M12 5h4l-4 5h4M17 13h3.5l-3.5 4h3.5" fill="none" stroke="#5b6b8a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
+  dance: `<path d="M9 18V6l10-2v12" fill="none" ${S}/><ellipse cx="7" cy="18" rx="2.5" ry="2" fill="#ff8fb1" ${S}/><ellipse cx="17" cy="16" rx="2.5" ry="2" fill="#5aa9e6" ${S}/>`,
   heart: `<path d="M12 20s-7.5-4.5-7.5-10A4 4 0 0 1 12 7.5 4 4 0 0 1 19.5 10C19.5 15.5 12 20 12 20z" fill="${P}" ${S}/>`,
 };
 
@@ -101,6 +107,7 @@ const ACC = {
   cap: `<path d="M6 9a6 6 0 0 1 12 0z" fill="#5aa9e6" ${S}/><path d="M12 9h7" fill="none" stroke="#5aa9e6" stroke-width="2.6" stroke-linecap="round"/>`,
   shades: `<rect x="7" y="9.8" width="4.2" height="2.6" rx="1" fill="#2b2b2b"/><rect x="12.8" y="9.8" width="4.2" height="2.6" rx="1" fill="#2b2b2b"/><path d="M11 11h2" stroke="#2b2b2b" stroke-width="1.2"/>`,
   leaf: `<path d="M12 6c1-3 4-3.5 5-2.5-1 2.5-3 3-5 2.5z" fill="#5cbf6a" ${S}/>`,
+  santa: `<path d="M6.5 7.5c1-4 5-5.5 9-3.5l2 3" fill="#d8342c" ${S}/><rect x="5.5" y="6.5" width="11" height="2.6" rx="1.3" fill="#ffffff" ${S}/><circle cx="18" cy="7" r="1.4" fill="#ffffff" ${S}/>`,
 };
 
 // 獎牌：1 金、2 銀、3 銅

@@ -377,6 +377,7 @@ function shape(geom, m, sx, sy, sz, outline = true) { const p = part(geom, m, ou
 
 // 大鴨造型（掛在大鴨身體上，跟著呼吸、被擠扁）
 const BR = big.userData.r;
+const DM_SANTA = { red: mat(0xd8342c), white: mat(0xffffff) };
 const OUTFITS = {
   bowtie: () => {
     const g = new THREE.Group();
@@ -425,6 +426,24 @@ const OUTFITS = {
     const tip = blob(M.gold, 0.06, 0.06, 0.06); tip.position.set(0.12, 3.12, 0); g.add(tip);
     return g;
   },
+  santa: () => {
+    const g = new THREE.Group();
+    const fur = part(new THREE.TorusGeometry(0.42, 0.1, 14, 40), DM_SANTA.white); fur.rotation.x = Math.PI / 2; fur.position.y = 2.12; g.add(fur);
+    // 紅色帽身：往一邊垂下來
+    const pts = [];
+    for (let i = 0; i <= 10; i++) { const k = i / 10; pts.push(new THREE.Vector3(0.38 * k * k, 2.15 + 0.85 * Math.sin(k * Math.PI * 0.55), 0)); }
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const tube = new THREE.TubeGeometry(curve, 30, 1, 20, false);
+    const pos = tube.attributes.position;
+    for (let i = 0; i <= 30; i++) {
+      const k = i / 30, c = curve.getPointAt(k), rr = 0.4 * (1 - k) + 0.04;
+      for (let j = 0; j <= 20; j++) { const idx = i * 21 + j; const v = new THREE.Vector3().fromBufferAttribute(pos, idx).sub(c).normalize().multiplyScalar(rr).add(c); pos.setXYZ(idx, v.x, v.y, v.z); }
+    }
+    tube.computeVertexNormals();
+    g.add(part(tube, DM_SANTA.red));
+    const pom = blob(DM_SANTA.white, 0.13, 0.13, 0.13); pom.position.copy(curve.getPointAt(1)); g.add(pom);
+    return g;
+  },
   beanie: () => {
     const g = new THREE.Group();
     const cap = blob(M.green, 0.5, 0.33, 0.5); cap.position.y = 2.12; g.add(cap);
@@ -456,6 +475,12 @@ const BUDDIES = {
     const stem = shape(CYL, M.green, 0.015, 0.1, 0.015, false); stem.position.set(0, 1.56, 0); d.userData.body.add(stem); return d; },
   grey: () => smallDuck(M.greyBody),
   white: () => smallDuck(WHITE), // 原本那隻小白鴨
+  xmas: () => { const d = smallDuck(M.yellowBody); const body = d.userData.body, r = d.userData.r;
+    const fur = part(new THREE.TorusGeometry(0.3, 0.07, 12, 32), DM_SANTA.white); fur.rotation.x = Math.PI / 2; fur.position.y = 1.43; body.add(fur);
+    const cap = shape(CONE, DM_SANTA.red, 0.3, 0.5, 0.3); cap.position.set(0.04, 1.7, 0); cap.rotation.z = -0.35; body.add(cap);
+    const pom = blob(DM_SANTA.white, 0.08, 0.08, 0.08); pom.position.set(0.15, 1.93, 0); body.add(pom);
+    const scarf = part(new THREE.TorusGeometry(r(0.85) * 0.98, 0.06, 10, 32), M.green); scarf.rotation.x = Math.PI / 2; scarf.position.y = 0.85; body.add(scarf);
+    return d; },
 };
 // 每隻小鴨都有自己固定的位置（被抱走時位置空著，回來時站回原位）
 const BUDDY_SLOTS = [[-1.45, -0.55], [-1.05, -1.55], [-2.05, -1.3], [-0.75, -2.55], [-2.45, -0.3], [-1.75, -2.4], [-2.75, -1.95]]; // 右後方留給去換衣間的路
@@ -472,6 +497,7 @@ function makeBuddy(id) {
   d.rotation.y = faceCenter(x, z);
   d.userData.phase = smallIds.indexOf(id) * 1.3;
   d.userData.id = id;
+  d.userData.facing = d.rotation.y;
   return d;
 }
 function placeBuddies(ids) {
@@ -498,17 +524,102 @@ function setHeldDuck(id) {
   small = next;
   heldId = id;
 }
+// ---------- 小鴨的等待動作（在商城買）：散步、跳跳、轉圈圈、打瞌睡、跳舞 ----------
+// 散步時會檢查路線：不會撞到大鴨、其他小鴨、別人的站位、換衣間、佈置物件，也不會走到前面接鴨的地方
+let enabledActs = [];
+const BUDDY_R = 0.36;
+const zTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  g.font = '900 48px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 6; g.strokeStyle = '#ffffff'; g.strokeText('z', 32, 34); g.fillStyle = '#5b6b8a'; g.fillText('z', 32, 34);
+  return new THREE.CanvasTexture(c); })();
+const zzz = [];
+function wanderObstacles(d) {
+  const obs = [{ x: 0, z: -0.2, r: 1.05 }, { x: -1.3, z: 0.55, r: 0.35 }, { x: 1.3, z: 0.55, r: 0.35 }, { x: 0, z: 1.2, r: 0.9 }];
+  if (booth.visible) obs.push(...boothObstacles());
+  obs.push(...decorObstacles());
+  for (const o of buddyObjs) {
+    if (o === d) continue;
+    obs.push({ x: o.position.x, z: o.position.z, r: BUDDY_R });
+    const a = o.userData.act;
+    if (a && a.type === 'wander' && a.to) obs.push({ x: a.to.x, z: a.to.z, r: BUDDY_R }); // 別人要去的地方先讓給他
+  }
+  for (const id of smallIds) { if (id === d.userData.id) continue; const [x, z] = slotOf(id); obs.push({ x, z, r: 0.3 }); }
+  return obs;
+}
+function pickAct(d) {
+  const ud = d.userData;
+  const choices = enabledActs.filter((a) => a !== 'wander' || true);
+  const [sx, sz] = slotOf(ud.id);
+  const home = new THREE.Vector3(sx, 0, sz);
+  const away = Math.hypot(d.position.x - sx, d.position.z - sz) > 0.15;
+  if (away && (!enabledActs.includes('wander') || Math.random() < 0.5)) return { type: 'wander', to: home, t: 0 };
+  if (!choices.length || Math.random() < 0.3) return { type: 'idle', t: 0, dur: 2 + Math.random() * 3 };
+  const type = choices[Math.floor(Math.random() * choices.length)];
+  if (type === 'wander') {
+    for (let k = 0; k < 10; k++) {
+      const a = Math.random() * Math.PI * 2, rr = 0.3 + Math.random() * 0.45;
+      const to = new THREE.Vector3(sx + Math.sin(a) * rr, 0, sz + Math.cos(a) * rr);
+      const obs = wanderObstacles(d);
+      if (!blockedAt(to.x, to.z, BUDDY_R, obs) && lineFree(d.position, to, BUDDY_R, obs)) return { type: 'wander', to, t: 0 };
+    }
+    return { type: 'idle', t: 0, dur: 1.5 };
+  }
+  return { type, t: 0, dur: { hop: 1.6, spin: 1.3, doze: 4, dance: 3.2 }[type] };
+}
 let cheerT = 0;
 function buddiesCheer() { cheerT = 1; }
 function animateBuddies(t, dt) {
   cheerT = Math.max(0, cheerT - dt * 1.2);
+  const frozen = swap.active || wardrobe.active;   // 換抱、換衣服時大家先站好不動
   for (const d of buddyObjs) {
     if (d.userData.busy) continue;
-    const ph = d.userData.phase;
-    const hop = cheerT > 0 ? Math.abs(Math.sin((1 - cheerT) * Math.PI * 3 + ph)) * 0.25 * cheerT : 0;
-    d.position.y = hop;
-    d.userData.body.scale.y = 1 + Math.sin(t * 2.4 + ph) * 0.02;
-    d.userData.body.rotation.z = Math.sin(t * 1.3 + ph) * 0.04;
+    const ud = d.userData, ph = ud.phase;
+    if (ud.facing === undefined) ud.facing = d.rotation.y;
+    if (!ud.act || (frozen && ud.act.type !== 'idle')) ud.act = { type: 'idle', t: 0, dur: 1 + Math.random() * 2 };
+    const act = ud.act;
+    act.t += dt;
+    let y = 0, rz = Math.sin(t * 1.3 + ph) * 0.04, rx = 0, spin = 0, sy = 1 + Math.sin(t * 2.4 + ph) * 0.02;
+    let faceTo = faceCenter(d.position.x, d.position.z);
+    if (act.type === 'wander') {
+      const dx = act.to.x - d.position.x, dz = act.to.z - d.position.z, dist = Math.hypot(dx, dz);
+      if (dist < 0.02) { ud.act = null; }
+      else {
+        const stepLen = Math.min(dist, 0.5 * dt);
+        const nx = d.position.x + (dx / dist) * stepLen, nz = d.position.z + (dz / dist) * stepLen;
+        if (blockedAt(nx, nz, BUDDY_R, wanderObstacles(d).filter((o) => Math.hypot(o.x - act.to.x, o.z - act.to.z) > 0.01))) { ud.act = null; }
+        else { d.position.x = nx; d.position.z = nz; faceTo = Math.atan2(dx, dz); }
+      }
+    } else if (act.type === 'hop') { y = Math.abs(Math.sin(act.t * Math.PI * 1.9)) * 0.22; }
+    else if (act.type === 'spin') { spin = Math.PI * 2 * ease2(Math.min(1, act.t / act.dur)); }
+    else if (act.type === 'doze') {
+      const k = Math.min(1, act.t / 0.6, (act.dur - act.t) / 0.6);
+      rx = 0.22 * k; sy = 1 - 0.06 * k + Math.sin(t * 2) * 0.015;
+      ud.zT = (ud.zT || 0) - dt;
+      if (ud.zT <= 0 && act.t < act.dur - 0.6) {
+        ud.zT = 0.8;
+        const z = new THREE.Sprite(new THREE.SpriteMaterial({ map: zTex, transparent: true, depthWrite: false }));
+        z.position.set(d.position.x + 0.15, 0.85, d.position.z); z.scale.setScalar(0.18);
+        z.userData.life = 0; scene.add(z); zzz.push(z);
+      }
+    } else if (act.type === 'dance') {
+      rz = Math.sin(act.t * 8) * 0.22; y = Math.abs(Math.sin(act.t * 8)) * 0.05; spin = Math.sin(act.t * 4) * 0.45;
+    }
+    if (act.type !== 'wander' && act.dur !== undefined && act.t > act.dur) ud.act = null;
+    if (!ud.act && !frozen) ud.act = pickAct(d);
+    // 走路的腳步跟著真的移動距離
+    const wd = stepWaddle(d, 'walk', 0.05, 0.12);
+    const cheer = cheerT > 0 ? Math.abs(Math.sin((1 - cheerT) * Math.PI * 3 + ph)) * 0.25 * cheerT : 0;
+    d.position.y = Math.max(y, cheer) + wd.y;
+    ud.facing = turnToward(ud.facing, faceTo, dt, 5);
+    d.rotation.set(0, ud.facing + spin, 0);
+    ud.body.rotation.set(rx, 0, rz + wd.z);
+    ud.body.scale.y = sy;
+  }
+  for (let i = zzz.length - 1; i >= 0; i--) {
+    const z = zzz[i]; z.userData.life += dt;
+    z.position.y += dt * 0.35; z.position.x += Math.sin(z.userData.life * 3) * dt * 0.15;
+    z.scale.setScalar(0.18 + z.userData.life * 0.08);
+    z.material.opacity = Math.max(0, 1 - z.userData.life / 1.6);
+    if (z.userData.life > 1.6) { scene.remove(z); z.material.dispose(); zzz.splice(i, 1); }
   }
 }
 
@@ -670,6 +781,26 @@ function startWardrobe(nextOutfit, done) {
   controls.autoRotate = false;
 }
 // 收起兩邊（左右變窄），出來後「啵」一下彈回原本的樣子
+// 等速走路（頭尾短短的加減速），腳步跟著「真的走了多遠」擺動 → 不會原地踏步
+function trapezoid(k, a = 0.15) {
+  k = THREE.MathUtils.clamp(k, 0, 1);
+  const vmax = 1 / (1 - a);
+  if (k < a) return 0.5 * vmax * k * k / a;
+  if (k > 1 - a) return 1 - 0.5 * vmax * (1 - k) * (1 - k) / a;
+  return 0.5 * vmax * a + vmax * (k - a);
+}
+const STEP_LEN = 0.32;
+function stepWaddle(obj, key, amp = 0.06, tilt = 0.07) {
+  const ud = obj.userData;
+  const p = obj.position, last = ud[key + 'Last'];
+  const moved = last ? Math.hypot(p.x - last.x, p.z - last.z) : 0;
+  ud[key + 'Last'] = { x: p.x, z: p.z };
+  ud[key + 'Ph'] = (ud[key + 'Ph'] || 0) + moved;
+  const walking = moved > 0.0008;
+  ud[key + 'W'] = (ud[key + 'W'] || 0) + ((walking ? 1 : 0) - (ud[key + 'W'] || 0)) * 0.25; // 停下時腳步慢慢收
+  const ph = (ud[key + 'Ph'] / STEP_LEN) * Math.PI;
+  return { y: Math.abs(Math.sin(ph)) * amp * ud[key + 'W'], z: Math.sin(ph) * tilt * ud[key + 'W'] };
+}
 const squeezeX = (sx, sz = 1) => { pairRoot.scale.set(sx, 1 + (1 - Math.min(sx, sz)) * 0.18, sz); };
 function animateWardrobe(dt, t) {
   const curtain = booth.userData.curtain;
@@ -712,7 +843,7 @@ function animateWardrobe(dt, t) {
   }
   // ---- 大鴨 ----
   if (w < T0) { pos = HOME; }
-  else if (w < T1) { const at = pathAt(P, ease2((w - T0) / W) * L); pos = at.pos; targetRot = at.dir; waddleOn = true; wardrobe.open = Math.max(0, 1 - (w - T0) / 0.3); }
+  else if (w < T1) { const at = pathAt(P, trapezoid((w - T0) / W) * L); pos = at.pos; targetRot = at.dir; waddleOn = true; wardrobe.open = Math.max(0, 1 - (w - T0) / 0.3); }
   else if (w < T2) { const k = ease2((w - T1) / 0.5); pos = BOOTH_FRONT; targetRot = intoDoor; curtainOpen = k; sx = 1 - (1 - NARROW) * k; if (!wardrobe.sq) { wardrobe.sq = true; sfx.swish(); } }
   else if (w < T3) { const k = ease2((w - T2) / 0.9); pos = lerp3(BOOTH_FRONT, BOOTH_IN, k); targetRot = intoDoor; curtainOpen = 1; waddleOn = true; sx = NARROW; }
   else if (w < T4) { pos = BOOTH_IN; targetRot = intoDoor; sx = NARROW; curtainOpen = 1 - (w - T3) / 0.35; }
@@ -734,7 +865,7 @@ function animateWardrobe(dt, t) {
     sx = 1 - (1 - NARROW) * Math.cos(k * Math.PI * 2.5) * Math.exp(-k * 4.5);
     if (!wardrobe.ta) { wardrobe.ta = true; sfx.pop(); sfx.boing(); sfx.sparkle(); hap.caught(); popHearts(); }
   }
-  else if (w < T9) { const at = pathAt(P, (1 - ease2((w - T8) / W)) * L); pos = at.pos; targetRot = at.dir + Math.PI; waddleOn = true; curtainOpen = Math.max(0, 1 - (w - T8) / 0.5); }
+  else if (w < T9) { const at = pathAt(P, (1 - trapezoid((w - T8) / W)) * L); pos = at.pos; targetRot = at.dir + Math.PI; waddleOn = true; curtainOpen = Math.max(0, 1 - (w - T8) / 0.5); }
   else if (w < T10) { pos = HOME; targetRot = 0; wardrobe.open = (w - T9) / 0.4; }
   else if (w < T11) {
     pos = HOME; targetRot = 0;
@@ -755,8 +886,9 @@ function animateWardrobe(dt, t) {
   }
   wardrobe.rot = turnToward(wardrobe.rot, targetRot, dt, shake ? 4 : 7);
   pairRoot.position.copy(pos);
-  pairRoot.position.y = waddleOn ? Math.abs(Math.sin(w * 13)) * 0.06 : 0;
-  pairRoot.rotation.set(0, wardrobe.rot, waddleOn ? Math.sin(w * 13) * 0.06 : 0);
+  const wd = stepWaddle(pairRoot, 'walk', 0.06, 0.06);
+  pairRoot.position.y = wd.y;
+  pairRoot.rotation.set(0, wardrobe.rot, wd.z);
   squeezeX(sx, sz);
   pairRoot.visible = true;
   curtain.scale.x = Math.max(0.16, 1 - 0.84 * THREE.MathUtils.clamp(curtainOpen, 0, 1));
@@ -791,13 +923,14 @@ function animateSwap(dt, t) {
   const w = swap.t, b = swap.buddy;
   const DOWN = 0.6, A_END = DOWN + swap.tA, B_START = A_END + 0.15, B_END = B_START + swap.tB, UP = B_END + 0.6, END = UP + 0.05;
   const step = (obj, path, k0, rotKey, phase) => {
-    const k = ease2(THREE.MathUtils.clamp(k0, 0, 1));
+    const k = trapezoid(k0);
     const at = pathAt(path, k * pathLength(path));
     obj.position.copy(at.pos);
     const moving = k0 > 0 && k0 < 1;
-    obj.position.y = moving ? Math.abs(Math.sin(t * 12 + phase)) * 0.04 : 0;
+    const wd = stepWaddle(obj, 'walk', 0.04, 0.12);
+    obj.position.y = wd.y;
     swap[rotKey] = turnToward(swap[rotKey], at.dir, dt, 9);
-    obj.rotation.set(0, swap[rotKey], moving ? Math.sin(t * 12 + phase) * 0.12 : 0);
+    obj.rotation.set(0, swap[rotKey], wd.z);
     if (moving && Math.floor(w * 4) !== Math.floor((w - dt) * 4)) sfx.flap();
   };
   if (w < DOWN) {
@@ -831,10 +964,11 @@ function animateSwap(dt, t) {
     oldHeld.rotation.set(0, faceCenter(swap.home.x, swap.home.z), 0);
     oldHeld.scale.setScalar(0.5);
     oldHeld.userData.id = oldId; oldHeld.userData.phase = smallIds.indexOf(oldId) * 1.3; oldHeld.userData.busy = false;
+    oldHeld.userData.facing = oldHeld.rotation.y; oldHeld.userData.act = null; oldHeld.userData.walkLast = null;
     scene.add(oldHeld);
     buddyObjs.splice(buddyObjs.indexOf(b), 1, oldHeld);
     scene.remove(b);
-    b.userData.busy = false;
+    b.userData.busy = false; b.userData.act = null; b.userData.body.rotation.set(0, 0, 0); b.userData.body.scale.y = 1;
     b.scale.setScalar(0.74); b.rotation.set(0, 0.12, 0);
     ducks.add(b);
     small = b;
@@ -921,7 +1055,7 @@ const DECOR_BUILD = {
 };
 // 擺放位置（避開小鴨的站位和換衣間）＋ 給走路路線用的障礙物大小
 const DECOR_PLACE = {
-  tree: { x: -1.0, z: -4.5, ry: 0, r: 1.15 },
+  tree: { x: -1.6, z: -4.7, ry: 0, r: 1.15 },
   gifts: { x: -2.15, z: -3.65, ry: 0.3, r: 0.75 },
   snowman: { x: 2.1, z: -1.1, ry: -0.7, r: 0.6 },
   lights: { x: 0, z: 0, ry: 0, r: 0 },
@@ -1828,6 +1962,7 @@ const SHOP_ITEMS = [
   { id: 'chef', kind: 'big', name: '廚師帽', price: 100, ic: 'chef' },
   { id: 'wizard', kind: 'big', name: '魔法師帽', price: 150, ic: 'wizard' },
   { id: 'crown', kind: 'big', name: '國王皇冠', price: 200, ic: 'crown' },
+  { id: 'santa', kind: 'big', name: '聖誕帽', price: 70, ic: 'santa' },
   { id: 'white', kind: 'small', name: '原本的小白鴨', price: 0, ic: 'chick-fdfcf8', free: true },
   { id: 'yellow', kind: 'small', name: '小黃鴨', price: 10, ic: 'chick-ffe27a' },
   { id: 'grey', kind: 'small', name: '小灰鴨', price: 12, ic: 'chick-c9c4bd' },
@@ -1835,7 +1970,19 @@ const SHOP_ITEMS = [
   { id: 'blue', kind: 'small', name: '棒球帽小藍鴨', price: 22, ic: 'chick-cfe8ff-cap' },
   { id: 'leaf', kind: 'small', name: '小葉子綠鴨', price: 26, ic: 'chick-d8f0c8-leaf' },
   { id: 'cool', kind: 'small', name: '墨鏡酷小鴨', price: 30, ic: 'chick-fdfcf8-shades' },
+  { id: 'xmas', kind: 'small', name: '聖誕小鴨', price: 28, ic: 'chick-ffe27a-santa' },
 ];
+const SHOP_ACTS = [
+  { id: 'wander', name: '散步', tip: '在自己的位置附近走來走去', price: 25, ic: 'walk' },
+  { id: 'hop', name: '跳跳', tip: '開心地原地跳', price: 15, ic: 'hop' },
+  { id: 'spin', name: '轉圈圈', tip: '原地轉一圈', price: 15, ic: 'spin' },
+  { id: 'doze', name: '打瞌睡', tip: '點頭打盹，冒出 zzz', price: 20, ic: 'doze' },
+  { id: 'dance', name: '跳舞', tip: '左右搖擺扭來扭去', price: 25, ic: 'dance' },
+];
+shopState.acts = Array.isArray(shopState.acts) ? shopState.acts.filter((id) => SHOP_ACTS.some((a) => a.id === id)) : [];
+shopState.actsOff = Array.isArray(shopState.actsOff) ? shopState.actsOff : [];
+const refreshActs = () => { enabledActs = shopState.acts.filter((id) => !shopState.actsOff.includes(id)); };
+refreshActs();
 // 一進來就穿上已經買好的造型、讓夥伴小鴨站好
 shopState.owned = shopState.owned.filter((id) => SHOP_ITEMS.some((x) => x.id === id));
 if (!shopState.owned.includes(shopState.outfit)) shopState.outfit = null;
@@ -1897,6 +2044,39 @@ function openShop() {
       btn.textContent = '抱抱牠';
       btn.className = 'buy';
       btn.onclick = () => holdBuddy(it);
+    }
+    li.appendChild(btn);
+    shopList.appendChild(li);
+  }
+  if (shopTab === 'small') drawActsShop();
+}
+function drawActsShop() {
+  const head = document.createElement('li');
+  head.className = 'section';
+  head.textContent = '小鴨的等待動作（買了之後所有夥伴小鴨都會做）';
+  shopList.appendChild(head);
+  for (const a of SHOP_ACTS) {
+    const owned = shopState.acts.includes(a.id);
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="sh-ic">${icon(a.ic, 40)}</span><span class="sh-tx"><b></b><small></small></span>`;
+    li.querySelector('b').textContent = a.name;
+    li.querySelector('small').innerHTML = owned ? '' : `${icon('coin', 16)}${a.price}　`;
+    li.querySelector('small').append(a.tip);
+    const btn = document.createElement('button');
+    if (!owned) {
+      btn.textContent = coins >= a.price ? '購買' : `還差 ${a.price - coins}`;
+      btn.disabled = coins < a.price; btn.className = 'buy';
+      btn.onclick = () => {
+        if (coins < a.price) return;
+        coins -= a.price; shopState.acts.push(a.id); saveShop(); drawCoins(true); sfx.coin(); refreshActs();
+        show(shopEl, false); toast(`小鴨們學會${a.name}了！`); sfx.sparkle(); buddiesCheer();
+        setTimeout(openShop, 2600);
+      };
+    } else {
+      const on = !shopState.actsOff.includes(a.id);
+      btn.textContent = on ? '關閉' : '開啟';
+      btn.className = on ? '' : 'buy';
+      btn.onclick = () => { shopState.actsOff = shopState.actsOff.filter((x) => x !== a.id); if (on) shopState.actsOff.push(a.id); saveShop(); refreshActs(); openShop(); };
     }
     li.appendChild(btn);
     shopList.appendChild(li);
