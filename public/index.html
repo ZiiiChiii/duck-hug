@@ -118,6 +118,10 @@
   .shoplist button { padding: 7px 12px !important; font-size: 14px; min-width: 76px; }
   .shoplist button.buy { background: #ffc35a; }
   .shoplist button:disabled { background: #efe4cf; color: #8a8072; box-shadow: none; }
+  .coin-float { position: fixed; top: calc(env(safe-area-inset-top) + 60px); left: 80px; font-size: 18px; font-weight: 900; color: #b8860b;
+                text-shadow: 0 2px 0 #fff, 0 -2px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff; pointer-events: none; animation: coinFloat 1.1s ease-out forwards; }
+  .coin-float.big { font-size: 24px; color: #e8524a; }
+  @keyframes coinFloat { 0% { opacity: 0; transform: translateY(6px) scale(.6); } 20% { opacity: 1; transform: translateY(0) scale(1.15); } 100% { opacity: 0; transform: translateY(-26px) scale(1); } }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 15px; }
 </style>
 <script type="importmap">

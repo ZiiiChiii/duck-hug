@@ -1112,7 +1112,8 @@ function tryCatch() {
         if (streak > best) { best = streak; try { localStorage.setItem(bestKey(), best); } catch (e) {} }
         updateScore();
         const firsts = recordCaught(trick);
-        addCoins(1); setTimeout(() => sfx.coin(), 260); buddiesCheer();
+        const reward = coinReward(trick);
+        addCoins(reward); setTimeout(() => sfx.coin(), 260); if (reward > 1) setTimeout(() => sfx.coin(), 420); buddiesCheer();
         if (firsts.length || streak % 5 === 0) { sfx.fanfare(); hap.big(); } else { sfx.catchSound(streak); hap.caught(); }
         if (firsts.length) firsts.forEach((tr) => achieve(`成功接住${tr.name.replace('！', '')}`));
         else toast(streak >= 3 ? `接得好！連續 ${streak} 隻` : '接得好！');
@@ -1619,7 +1620,21 @@ function drawCoins(bump) {
   coinEl.innerHTML = `${icon('coin', 24)}<b>${coins}</b>`;
   if (bump) { coinEl.classList.remove('bump'); void coinEl.offsetWidth; coinEl.classList.add('bump'); }
 }
-function addCoins(n) { coins += n; saveShop(); drawCoins(true); }
+function addCoins(n) {
+  coins += n; saveShop(); drawCoins(true);
+  // 左上角飄出「+N」
+  const f = document.createElement('div');
+  f.className = 'coin-float' + (n > 1 ? ' big' : '');
+  f.textContent = `+${n}`;
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 1200);
+}
+// 接住的獎勵：普通鴨 1、衝刺鴨／隱形鴨 3、其他特殊鴨 2（組合技取最高的那個）
+const COIN_REWARD = { dash: 3, vanish: 3 };
+function coinReward(list) {
+  if (!list || !list.length) return 1;
+  return Math.max(...list.map((t) => COIN_REWARD[t.id] || 2));
+}
 drawCoins(false);
 
 const SHOP_ITEMS = [
