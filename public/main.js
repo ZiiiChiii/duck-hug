@@ -257,10 +257,17 @@ function bigDuck() {
   const { geom, r } = egg(0.98, 2.3);
   body.add(part(geom, WHITE));
 
-  body.add(eye(r, 1.86, -0.4, 0.06));
-  body.add(eye(r, 1.86, 0.4, 0.06));
+  // 臉（眼睛＋嘴巴）放在一個「頭」的中心，之後可以轉向看小鴨
+  const HEAD_C = new THREE.Vector3(0, 1.61, 0);
+  const face = new THREE.Group();
+  face.position.copy(HEAD_C);
+  body.add(face);
+  const feats = [];
+  const addFeat = (o) => { o.position.sub(HEAD_C); face.add(o); feats.push({ o, p0: o.position.clone(), q0: o.quaternion.clone() }); };
+  addFeat(eye(r, 1.86, -0.4, 0.06));
+  addFeat(eye(r, 1.86, 0.4, 0.06));
 
-  body.add(smileBeak(r, 1.64, 1));
+  addFeat(smileBeak(r, 1.64, 1));
   // 另一邊翅膀貼在背側
 
   const tail = blob(WHITE, 0.2, 0.13, 0.16);
@@ -275,7 +282,7 @@ function bigDuck() {
   scratch.visible = false;
   scratch.userData.baseQ = scratch.quaternion.clone();
   body.add(scratch);
-  duck.userData = { body, scratch, r };
+  duck.userData = { body, scratch, r, face, feats };
   return duck;
 }
 
@@ -951,6 +958,39 @@ function animateDecor(t, dt) {
   if (tr) tr.userData.star.rotation.y = t * 1.2;
 }
 
+
+// ---------- 大鴨的目光：一直看著小鴨（抱著時往下看、飛上去時抬頭、哭的時候看著牠） ----------
+const HEAD_A = 0.62, HEAD_B = 0.69;            // 頭（橢圓）的水平、垂直半徑
+const gaze = { yaw: 0, pitch: 0 };
+const tmpG = new THREE.Vector3(), tmpQ = new THREE.Quaternion(), tmpQ2 = new THREE.Quaternion(), tmpE = new THREE.Euler();
+const surfR = (d) => 1 / Math.sqrt((d.x * d.x + d.z * d.z) / (HEAD_A * HEAD_A) + (d.y * d.y) / (HEAD_B * HEAD_B));
+for (const f of big.userData.feats) { const d = f.p0.clone().normalize(); f.dir0 = d; f.off = f.p0.length() - surfR(d); }
+function updateGaze(dt) {
+  const face = big.userData.face;
+  // 要看的地方：小鴨的頭；小鴨在畫面上方看不到時（等著掉下來）就抬頭往上看
+  let target;
+  if (!small.visible || smallY > 5.5) target = tmpG.set(0, 9, 1.2);
+  else target = small.localToWorld(tmpG.set(0, 1.1, 0));
+  face.worldToLocal(target);
+  const horiz = Math.hypot(target.x, target.z);
+  let yaw = Math.atan2(target.x, Math.max(0.2, target.z));
+  let pitch = Math.atan2(target.y, Math.max(0.25, horiz));
+  yaw = THREE.MathUtils.clamp(yaw, -0.75, 0.75);
+  pitch = THREE.MathUtils.clamp(pitch, -0.55, 0.45); // 抬頭最多到這裡，臉還看得到
+  const k = Math.min(1, dt * 8);
+  gaze.yaw += (yaw - gaze.yaw) * k;
+  gaze.pitch += (pitch - gaze.pitch) * k;
+  tmpQ.setFromEuler(tmpE.set(-gaze.pitch, gaze.yaw, 0, 'YXZ'));
+  // 五官沿著頭的表面滑動（不會陷進頭裡或浮在外面）
+  for (const f of big.userData.feats) {
+    const d = tmpG.copy(f.dir0).applyQuaternion(tmpQ);
+    f.o.position.copy(d).multiplyScalar(surfR(d) + f.off);
+    f.o.quaternion.copy(tmpQ).multiply(f.q0);
+  }
+  // 抬頭往上看時，整隻稍微往後仰
+  const lean = THREE.MathUtils.clamp(gaze.pitch - 0.1, 0, 0.4) * 0.25;
+  big.userData.body.rotation.x = -lean;
+}
 
 // 愛心
 const heartTex = (() => {
@@ -2016,6 +2056,7 @@ function animate() {
   animateSwap(dt, clock.elapsedTime);
   animateBuddies(clock.elapsedTime, dt);
   animateDecor(clock.elapsedTime, dt);
+  updateGaze(dt);
   const t = clock.elapsedTime;
   stateT = window.__pauseT != null ? window.__pauseT : stateT + dt; // __pauseT 只給自動測試用
 
@@ -2046,16 +2087,16 @@ function animate() {
       bigDip = k;
     } else if (tt < T_UP) {            // 往上甩
       const k = (tt - T_DIP) / (T_UP - T_DIP);
-      const e = 1 - (1 - k) * (1 - k);
+      const e = k * k;                 // 越甩越快，放手那一刻速度最快
       wingDY = -0.22 + 0.72 * e; wingLift = 0.25 - 0.85 * e; open = 0;
       smallY = CATCH_Y + wingDY; smallZ = HOLD_Z;
       bigDip = 1 - k * 1.6;
-      tossVel = 9;
+      tossVel = (2 * 0.72) / (T_UP - T_DIP); // = 放手瞬間翅膀往上的速度
     } else {                           // 放手：小鴨繼續往上飛，翅膀慢慢回到預備位置
       if (!tossReleased) { tossReleased = true; sfx.whooshUp(); hap.toss(); }
       const k = ease(Math.min(1, (tt - T_UP) / (T_BACK - T_UP)));
       wingDY = 0.5 * (1 - k); wingLift = -0.6 * (1 - k); open = k;
-      smallY += tossVel * dt; tossVel = Math.max(6, tossVel - 4 * dt);
+      smallY += tossVel * dt;          // 維持放手時的速度一路飛上去（不停頓、不突然加速）
       flail = 1; bigDip = 0;
     }
     if (smallY > 6.5 && tossReleased) {
