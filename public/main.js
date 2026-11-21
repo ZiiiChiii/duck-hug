@@ -497,7 +497,7 @@ function animateBuddies(t, dt) {
 // 換衣間（大鴨後面）
 const booth = new THREE.Group();
 {
-  const W2 = 0.8, H = 2.7, D = 1.2;
+  const W2 = 0.92, H = 3.4, D = 2.3; // 夠大，大鴨收起兩邊就能整隻走進去
   const back = shape(BOX, M.wood, W2 * 2, H, 0.08); back.position.set(0, H / 2, -D / 2); booth.add(back);
   for (const sx of [-1, 1]) { const side = shape(BOX, M.wood, 0.08, H, D); side.position.set(sx * W2, H / 2, 0); booth.add(side); }
   const roof = shape(BOX, M.pink, W2 * 2 + 0.3, 0.16, D + 0.3); roof.position.set(0, H + 0.08, 0); booth.add(roof);
@@ -514,21 +514,20 @@ const booth = new THREE.Group();
   // 布簾（從左邊收起來）
   const curtain = new THREE.Group();
   curtain.position.set(-W2 + 0.05, 0, D / 2);
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 7; i++) {
     const fold = shape(CYL, i % 2 ? M.pink : M.red, 0.15, H - 0.2, 0.09);
-    fold.position.set(0.14 + i * 0.27, (H - 0.2) / 2 + 0.08, 0);
+    fold.position.set(0.13 + i * ((W2 * 2 - 0.2) / 6.5), (H - 0.2) / 2 + 0.08, 0);
     curtain.add(fold);
   }
   const rod = shape(CYL, M.dark, 0.03, W2 * 2, 0.03, false); rod.rotation.z = Math.PI / 2; rod.position.set(0, H - 0.05, D / 2); booth.add(rod);
   booth.add(curtain);
   booth.userData.curtain = curtain;
 }
-booth.position.set(1.25, 0, -3.3);
+booth.position.set(1.35, 0, -3.9);
 booth.rotation.y = -0.3;
-booth.scale.setScalar(0.92);
 scene.add(booth);
-const BOOTH_FRONT = booth.localToWorld(new THREE.Vector3(0, 0, 1.4));
-const BOOTH_IN = booth.localToWorld(new THREE.Vector3(0, 0, 0.1));
+const BOOTH_FRONT = booth.localToWorld(new THREE.Vector3(0, 0, 2.75));  // 門口前面
+const BOOTH_IN = booth.localToWorld(new THREE.Vector3(0, 0, -0.05));   // 換衣間正中間
 const HOME = new THREE.Vector3(0, 0, 0);
 
 const lerp3 = (a, b, k) => new THREE.Vector3().lerpVectors(a, b, k);
@@ -540,7 +539,7 @@ const GRID = 0.1, GX0 = -4.5, GX1 = 4.5, GZ0 = -5, GZ1 = 3;
 const NX = Math.round((GX1 - GX0) / GRID) + 1, NZ = Math.round((GZ1 - GZ0) / GRID) + 1;
 function boothObstacles() {
   const out = [];
-  for (const lx of [-0.75, -0.25, 0.25, 0.75]) for (const lz of [-0.55, 0, 0.5]) {
+  for (const lx of [-0.9, -0.3, 0.3, 0.9]) for (const lz of [-1.1, -0.4, 0.4, 1.1]) {
     const w = booth.localToWorld(new THREE.Vector3(lx, 0, lz));
     out.push({ x: w.x, z: w.z, r: 0.4 });
   }
@@ -624,53 +623,105 @@ const buddyObstacles = (except = []) => buddyObjs.filter((d) => !except.includes
 
 // ---------- 走去換衣間 → 拉上布簾換衣服 → 走回來（沿著規劃好的路線，繞開小鴨） ----------
 const BIG_R = 1.15;   // 大鴨＋翅膀的半徑
-const wardrobe = { active: false, t: 0, next: null, swapped: false, done: null, rustle: 0 };
+const wardrobe = { active: false, t: 0, next: null, swapped: false, done: null, rustle: 0, open: 0 };
 function startWardrobe(nextOutfit, done) {
-  const obs = [...buddyObstacles(), ...boothObstacles()];
+  // 先把懷裡的小鴨放在大鴨前面，大鴨自己走去（路線要繞開放下的小鴨和後面的小鴨們）
+  const obs = [...buddyObstacles(), ...boothObstacles(), { x: PUT_DOWN.x, z: PUT_DOWN.z, r: 0.42 }];
   const path = planPath(HOME, BOOTH_FRONT, BIG_R, obs);
   const L = pathLength(path);
-  Object.assign(wardrobe, { active: true, t: 0, next: nextOutfit, swapped: false, done, rustle: 0, ta: false, path, walk: Math.max(1.2, L / 1.3), rot: 0 });
+  Object.assign(wardrobe, {
+    active: true, t: 0, next: nextOutfit, swapped: false, done, rustle: 0, ta: false, path, walk: Math.max(1.3, L / 1.2),
+    rot: 0, open: 0, heldStart: small.position.clone(), droppedSmall: false, pickedUp: false, squeeze: 1, smallRot: small.rotation.y,
+  });
   controls.autoRotate = false;
 }
+// 收起兩邊（左右變窄），出來後「啵」一下彈回原本的樣子
+const squeezeX = (sx) => { pairRoot.scale.set(sx, 1 + (1 - sx) * 0.18, 1); };
 function animateWardrobe(dt, t) {
   const curtain = booth.userData.curtain;
   if (!wardrobe.active) { curtain.scale.x += (1 - curtain.scale.x) * Math.min(1, dt * 6); curtain.rotation.z = 0; return; }
   wardrobe.t += dt;
   const w = wardrobe.t, W = wardrobe.walk, P = wardrobe.path, L = pathLength(P);
-  const T1 = W, T2 = T1 + 0.4, T3 = T2 + 0.6, T4 = T3 + 0.3, T5 = T4 + 1.3, T6 = T5 + 0.4, T7 = T6 + 0.6, T8 = T7 + W, T9 = T8 + 0.45;
-  let pos = HOME, targetRot = 0, scl = 1, curtainOpen = 0, waddleOn = false, shake = 0;
+  const NARROW = 0.56;
+  const T0 = 0.6,                 // 放下小鴨
+    T1 = T0 + W,                  // 走到換衣間門口
+    T2 = T1 + 0.5,                // 面向門、收起兩邊、布簾拉開
+    T3 = T2 + 0.9,                // 側著身子走進去
+    T4 = T3 + 0.35,               // 布簾拉上
+    T5 = T4 + 1.4,                // 在裡面換衣服（布簾晃動）
+    T6 = T5 + 0.4,                // 布簾拉開
+    T7 = T6 + 0.9,                // 走出來（還是窄窄的）
+    T8 = T7 + 0.6,                // 啵！彈回原本的樣子
+    T9 = T8 + W,                  // 走回原位
+    T10 = T9 + 0.4,               // 轉回正面
+    T11 = T10 + 0.7;              // 把小鴨抱回來
+  let pos = HOME, targetRot = 0, curtainOpen = 0, waddleOn = false, shake = 0, sx = 1;
   const intoDoor = faceToward(BOOTH_FRONT, BOOTH_IN);
-  if (w < T1) { const at = pathAt(P, ease2(w / T1) * L); pos = at.pos; targetRot = at.dir; waddleOn = true; }
-  else if (w < T2) { pos = BOOTH_FRONT; targetRot = intoDoor; curtainOpen = (w - T1) / 0.4; }
-  else if (w < T3) { const k = ease2((w - T2) / 0.6); pos = lerp3(BOOTH_FRONT, BOOTH_IN, k); targetRot = intoDoor; scl = 1 - 0.7 * k; curtainOpen = 1; waddleOn = true; }
-  else if (w < T4) { pos = BOOTH_IN; scl = 0; curtainOpen = 1 - (w - T3) / 0.3; }
+  // ---- 小鴨：放下 → 在前面等 → 被抱回去 ----
+  if (w < T0) {
+    const k = ease2(w / T0);
+    small.position.lerpVectors(wardrobe.heldStart, PUT_DOWN, k);
+    small.rotation.z = 0;
+    wardrobe.open = k;
+  } else if (!wardrobe.droppedSmall) {
+    wardrobe.droppedSmall = true;
+    ducks.remove(small); scene.add(small);         // 放在地上，不跟著大鴨走
+    small.position.copy(PUT_DOWN); small.position.y = 0;
+  }
+  if (wardrobe.droppedSmall && !wardrobe.pickedUp) {
+    // 在前面看著大鴨，輕輕搖擺
+    const look = faceToward(small.position, pairRoot.position);
+    wardrobe.smallRot = turnToward(wardrobe.smallRot, look, dt, 4);
+    small.rotation.set(0, wardrobe.smallRot, Math.sin(t * 2.2) * 0.04);
+  }
+  // ---- 大鴨 ----
+  if (w < T0) { pos = HOME; }
+  else if (w < T1) { const at = pathAt(P, ease2((w - T0) / W) * L); pos = at.pos; targetRot = at.dir; waddleOn = true; wardrobe.open = Math.max(0, 1 - (w - T0) / 0.3); }
+  else if (w < T2) { const k = ease2((w - T1) / 0.5); pos = BOOTH_FRONT; targetRot = intoDoor; curtainOpen = k; sx = 1 - (1 - NARROW) * k; if (!wardrobe.sq) { wardrobe.sq = true; sfx.swish(); } }
+  else if (w < T3) { const k = ease2((w - T2) / 0.9); pos = lerp3(BOOTH_FRONT, BOOTH_IN, k); targetRot = intoDoor; curtainOpen = 1; waddleOn = true; sx = NARROW; }
+  else if (w < T4) { pos = BOOTH_IN; targetRot = intoDoor; sx = NARROW; curtainOpen = 1 - (w - T3) / 0.35; }
   else if (w < T5) {
-    pos = BOOTH_IN; scl = 0; shake = 1;
+    pos = BOOTH_IN; sx = NARROW; shake = 1; targetRot = intoDoor + Math.PI; // 在裡面偷偷轉身
     wardrobe.rustle -= dt;
     if (wardrobe.rustle <= 0) { wardrobe.rustle = 0.22; sfx.swish(); }
     if (w > T4 + 0.7 && !wardrobe.swapped) { wardrobe.swapped = true; wearOutfit(wardrobe.next); }
   }
-  else if (w < T6) { pos = BOOTH_IN; scl = 0; curtainOpen = (w - T5) / 0.4; wardrobe.rot = intoDoor + Math.PI; }
-  else if (w < T7) {
-    const k = ease2((w - T6) / 0.6); pos = lerp3(BOOTH_IN, BOOTH_FRONT, k); targetRot = intoDoor + Math.PI; scl = 0.3 + 0.7 * k; curtainOpen = 1; waddleOn = true;
-    if (!wardrobe.ta) { wardrobe.ta = true; sfx.pop(); sfx.sparkle(); hap.caught(); popHearts(); }
+  else if (w < T6) { pos = BOOTH_IN; sx = NARROW; targetRot = intoDoor + Math.PI; curtainOpen = (w - T5) / 0.4; }
+  else if (w < T7) { const k = ease2((w - T6) / 0.9); pos = lerp3(BOOTH_IN, BOOTH_FRONT, k); targetRot = intoDoor + Math.PI; sx = NARROW; curtainOpen = 1; waddleOn = true; }
+  else if (w < T8) {
+    const k = (w - T7) / 0.6;
+    pos = BOOTH_FRONT; targetRot = intoDoor + Math.PI; curtainOpen = 1;
+    // 彈簧：0.56 → 衝過頭到 1.15 → 回到 1
+    sx = 1 - (1 - NARROW) * Math.cos(k * Math.PI * 2.5) * Math.exp(-k * 4.5);
+    if (!wardrobe.ta) { wardrobe.ta = true; sfx.pop(); sfx.boing(); sfx.sparkle(); hap.caught(); popHearts(); }
   }
-  else if (w < T8) { const at = pathAt(P, (1 - ease2((w - T7) / W)) * L); pos = at.pos; targetRot = at.dir + Math.PI; waddleOn = true; curtainOpen = Math.max(0, 1 - (w - T7) / 0.5); }
-  else if (w < T9) { pos = HOME; targetRot = 0; }
+  else if (w < T9) { const at = pathAt(P, (1 - ease2((w - T8) / W)) * L); pos = at.pos; targetRot = at.dir + Math.PI; waddleOn = true; curtainOpen = Math.max(0, 1 - (w - T8) / 0.5); }
+  else if (w < T10) { pos = HOME; targetRot = 0; wardrobe.open = (w - T9) / 0.4; }
+  else if (w < T11) {
+    pos = HOME; targetRot = 0;
+    if (!wardrobe.pickedUp) { wardrobe.pickedUp = true; scene.remove(small); ducks.add(small); wardrobe.pickFrom = small.position.clone(); wardrobe.pickRot = small.rotation.y; }
+    const k = ease2((w - T10) / 0.7);
+    small.position.set(0, CATCH_Y * k, wardrobe.pickFrom.z + (HOLD_Z - wardrobe.pickFrom.z) * k);
+    small.rotation.set(0, wardrobe.pickRot + (0.12 - wardrobe.pickRot) * k, 0);
+    wardrobe.open = 1 - k;
+  }
   else {
-    wardrobe.active = false;
+    wardrobe.active = false; wardrobe.sq = false;
+    if (!wardrobe.pickedUp) { scene.remove(small); ducks.add(small); }
     pairRoot.position.set(0, 0, 0); pairRoot.rotation.set(0, 0, 0); pairRoot.scale.setScalar(1); pairRoot.visible = true;
+    smallY = CATCH_Y; smallZ = HOLD_Z; smallX = 0; wardrobe.open = 0;
+    squeeze = 1; quack(0, 1.2, 0.3, 0.12);
     if (wardrobe.done) wardrobe.done();
     return;
   }
-  wardrobe.rot = turnToward(wardrobe.rot, targetRot, dt, scl < 0.05 ? 100 : 7);
+  wardrobe.rot = turnToward(wardrobe.rot, targetRot, dt, shake ? 3 : 7);
   pairRoot.position.copy(pos);
   pairRoot.position.y = waddleOn ? Math.abs(Math.sin(w * 13)) * 0.06 : 0;
-  pairRoot.rotation.set(0, wardrobe.rot, waddleOn ? Math.sin(w * 13) * 0.07 : 0);
-  pairRoot.scale.setScalar(Math.max(scl, 0.001));
-  pairRoot.visible = scl > 0.02;
-  curtain.scale.x = Math.max(0.18, 1 - 0.82 * THREE.MathUtils.clamp(curtainOpen, 0, 1));
-  curtain.rotation.z = shake ? Math.sin(t * 30) * 0.02 : 0;
+  pairRoot.rotation.set(0, wardrobe.rot, waddleOn ? Math.sin(w * 13) * 0.06 : 0);
+  squeezeX(sx);
+  pairRoot.visible = true;
+  curtain.scale.x = Math.max(0.16, 1 - 0.84 * THREE.MathUtils.clamp(curtainOpen, 0, 1));
+  curtain.rotation.z = shake ? Math.sin(t * 30) * 0.015 : 0;
   curtain.children.forEach((f, i) => { f.rotation.z = shake ? Math.sin(t * 22 + i) * 0.05 : 0; });
 }
 
@@ -790,6 +841,10 @@ function popHearts() {
 // ---------- 相機與操作 ----------
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0.95, 0.3);
+const CAM_HOME = new THREE.Vector3(0, 0.95, 0.3);
+const CAM_BOOTH = new THREE.Vector3(0.4, 1.25, -1.2); // 換衣服時鏡頭往後移，看得到換衣間
+const camGoal = new THREE.Vector3().copy(CAM_HOME);
+const camDelta = new THREE.Vector3();
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.enablePan = false;
@@ -807,6 +862,7 @@ function fitCamera() {
   return 7.2 * Math.max(1, 0.85 / aspect);
 }
 const dist = fitCamera();
+let camFitDist = dist;
 camera.position.set(0, 1.9, dist);
 const qs = new URLSearchParams(location.search);
 const angleParam = qs.get('angle');
@@ -1884,8 +1940,8 @@ function animate() {
   // 小鴨位置
   const holding = state === 'idle' || state === 'caught';
   if (state !== 'fall') { smallX += (0 - smallX) * Math.min(1, dt * 8); small.visible = !(state === 'sent' || state === 'await'); }
-  if (!swap.active) small.position.set(smallX, smallY + bounce + (holding ? Math.sin(t * 2.2) * 0.012 + sq * 0.5 : 0), smallZ);
-  if (!swap.active) small.rotation.z = (crying ? Math.sin(t * 30) * 0.06 : Math.sin(t * 1.6) * 0.035) + flail * Math.sin(t * 22) * 0.18;
+  if (!swap.active && !wardrobe.active) small.position.set(smallX, smallY + bounce + (holding ? Math.sin(t * 2.2) * 0.012 + sq * 0.5 : 0), smallZ);
+  if (!swap.active && !wardrobe.active) small.rotation.z = (crying ? Math.sin(t * 30) * 0.06 : Math.sin(t * 1.6) * 0.035) + flail * Math.sin(t * 22) * 0.18;
   small.rotation.x = crying ? 0.12 : 0;
   small.userData.mouth.scale.set(0.82, crying ? 0.82 * (1.25 + Math.sin(t * 9) * 0.12) : 0.82, 0.82);
 
@@ -1916,7 +1972,7 @@ function animate() {
   } else sweat.visible = false;
 
   // 翅膀
-  const sad = state === 'miss' || tired > 0 ? 0.35 : swap.active ? swap.open : 0;
+  const sad = state === 'miss' || tired > 0 ? 0.35 : swap.active ? swap.open : wardrobe.active ? wardrobe.open : 0;
   wingOpen += (Math.max(open, sad) - wingOpen) * Math.min(1, dt * 25);
   for (const w of hugWings) {
     const o = wingOpen;
@@ -1944,6 +2000,16 @@ function animate() {
     }
   }
 
+  // 換衣服時鏡頭慢慢移過去看換衣間，結束再移回來（整台相機一起平移，角度不變）
+  camGoal.copy(wardrobe.active ? CAM_BOOTH : CAM_HOME);
+  camDelta.copy(camGoal).sub(controls.target).multiplyScalar(Math.min(1, dt * 2.5));
+  if (camDelta.lengthSq() > 1e-8) { controls.target.add(camDelta); camera.position.add(camDelta); }
+  // 換衣服時鏡頭稍微拉遠一點
+  {
+    const off = camera.position.clone().sub(controls.target);
+    const want = wardrobe.active ? Math.max(off.length(), camFitDist * 1.3) : null;
+    if (want && Math.abs(off.length() - want) > 0.01) { off.setLength(off.length() + (want - off.length()) * Math.min(1, dt * 2)); camera.position.copy(controls.target).add(off); }
+  }
   controls.update();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
