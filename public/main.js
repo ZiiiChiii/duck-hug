@@ -1098,23 +1098,33 @@ const gaze = { yaw: 0, pitch: 0 };
 const tmpG = new THREE.Vector3();
 function updateGaze(dt) {
   const body = big.userData.body;
-  // 要看的地方：小鴨的頭；小鴨在畫面上方看不到時（等著掉下來）就抬頭往上看
   let target;
-  if (wardrobe.active) target = big.localToWorld(tmpG.set(0, 1.61, 5));   // 走去換衣服時看前面
-  else if (!small.visible || smallY > 5.5) target = tmpG.set(0, 9, 1.2);
-  else target = small.localToWorld(tmpG.set(0, 1.1, 0));
+  if (wardrobe.active) target = big.localToWorld(tmpG.set(0, 1.61, 5));      // 走去換衣服時看前面
+  else if (!small.visible && (state === 'sent' || state === 'await')) target = pairRoot.localToWorld(tmpG.set(0, 7, HOLD_Z)); // 鴨子在朋友那邊：抬頭等
+  else target = small.localToWorld(tmpG.set(0, 1.1, 0));                    // 一直盯著小鴨（飛到最高、往下掉都跟著）
   big.worldToLocal(target);
-  target.y -= 1.61;                                  // 以頭的高度為準
+  target.y -= 1.61;                                                           // 以眼睛的高度為準
   const horiz = Math.hypot(target.x, target.z);
   const yaw = THREE.MathUtils.clamp(Math.atan2(target.x, Math.max(0.15, target.z)), -1.1, 1.1);
-  const pitch = THREE.MathUtils.clamp(Math.atan2(target.y, Math.max(0.3, horiz)), -0.6, 1.2);
-  const k = Math.min(1, dt * 6);
+  const pitch = THREE.MathUtils.clamp(Math.atan2(target.y, Math.max(0.3, horiz)), -0.6, 1.35);
+  const fast = state === 'fall' || state === 'toss' || state === 'wait';
+  const k = Math.min(1, dt * (fast ? 12 : 6));
   gaze.yaw += (yaw - gaze.yaw) * k;
   gaze.pitch += (pitch - gaze.pitch) * k;
-  // 轉身：整隻身體一起轉（梨形左右對稱，轉起來不會變形）
   body.rotation.y = gaze.yaw * 0.9;
-  // 抬頭往上看 → 身體往後仰；低頭看小鴨 → 稍微往前傾
-  body.rotation.x = gaze.pitch > 0 ? -Math.min(0.16, gaze.pitch * 0.14) : Math.min(0.1, -gaze.pitch * 0.12);
+  // 抬頭往上看 → 往後仰（越高仰越多）；低頭看小鴨 → 稍微往前傾
+  body.rotation.x = gaze.pitch > 0 ? -Math.min(0.24, gaze.pitch * 0.18) : Math.min(0.1, -gaze.pitch * 0.12);
+}
+// 手臂（翅膀）跟著身體一起轉、一起仰，不會跟身體分開
+const BODY_PIVOT = new THREE.Vector3(0, 0, -0.2);    // 大鴨腳底（在 pairRoot 裡的位置）
+const armQ = new THREE.Quaternion(), armV = new THREE.Vector3();
+function armsFollowBody() {
+  armQ.setFromEuler(big.userData.body.rotation);
+  for (const w of hugWings) {
+    armV.copy(w.position).sub(BODY_PIVOT).applyQuaternion(armQ).add(BODY_PIVOT);
+    w.position.copy(armV);
+    w.quaternion.premultiply(armQ);
+  }
 }
 
 // 愛心
@@ -2426,10 +2436,12 @@ function animate() {
     const o = wingOpen;
     w.position.x = w.userData.baseX - w.userData.side * sq * 0.25 + w.userData.side * o * 0.12;
     w.position.y = w.userData.baseY + wingDY;
+    w.position.z = w.userData.baseZ; // 每格重設（之後會跟著身體轉）
     qTmp.setFromAxisAngle(yAxis, w.userData.side * o * 0.95);
     qTmp2.setFromAxisAngle(xAxis, wingLift);
     w.quaternion.copy(qTmp).multiply(qTmp2).multiply(w.userData.baseQ);
   }
+  armsFollowBody();
   if (bubble.classList.contains('show')) updateBubble();
 
   for (let i = hearts.length - 1; i >= 0; i--) {
