@@ -452,11 +452,17 @@ const OUTFITS = {
     return g;
   },
 };
-let outfitObj = null;
-function wearOutfit(id) {
-  if (outfitObj) { big.userData.body.remove(outfitObj); outfitObj = null; }
-  if (id && OUTFITS[id]) { outfitObj = OUTFITS[id](); big.userData.body.add(outfitObj); }
+// 穿戴位置：同一個位置只能戴一件，不同位置可以一起穿（例如帽子＋圍巾）
+const OUTFIT_SLOT = { bowtie: 'neck', scarf: 'neck', beanie: 'head', chef: 'head', wizard: 'head', crown: 'head', santa: 'head' };
+const SLOT_NAME = { head: '帽子', neck: '脖子' };
+let outfitObjs = [];
+function wearOutfit(list) {
+  for (const o of outfitObjs) big.userData.body.remove(o);
+  outfitObjs = [];
+  for (const id of list || []) if (OUTFITS[id]) { const o = OUTFITS[id](); big.userData.body.add(o); outfitObjs.push(o); }
 }
+// 穿上 id：同位置的那件會換下來
+function outfitWith(list, id) { return [...list.filter((x) => OUTFIT_SLOT[x] !== OUTFIT_SLOT[id]), id]; }
 
 // 夥伴小鴨（買了就站在大鴨後面）
 const BUDDIES = {
@@ -1298,7 +1304,7 @@ function saveBests() {
 }
 loadBest();
 let speedMul = 1;
-const vmax = () => Math.min(Math.min(3.0 + streak * 0.3, 6.0) * speedMul, 8); // 最快不超過 8，避免衝刺鴨快到接不到
+const vmax = () => Math.min(Math.min(3.0 + caughtN * 0.3, 6.0) * speedMul, 8); // 最快不超過 8，避免衝刺鴨快到接不到
 
 // ---------- 掉落花招（接越多隻，解鎖越多、越常出現） ----------
 // unlock：連續接住幾隻後開始出現
@@ -1313,14 +1319,14 @@ const TRICKS = [
 let trick = null;           // 這一輪的花招（可能組合兩個）
 let trickState = {};
 function pickTrick() {
-  const open = TRICKS.filter((t) => streak >= t.unlock);
+  const open = TRICKS.filter((t) => caughtN >= t.unlock);
   // 前幾隻普通掉；之後出現花招的機率越來越高
-  const chance = open.length === 0 ? 0 : Math.min(0.45 + streak * 0.04, 0.9);
+  const chance = open.length === 0 ? 0 : Math.min(0.45 + caughtN * 0.04, 0.9);
   const list = [];
   if (Math.random() < chance) {
     list.push(open[Math.floor(Math.random() * open.length)]);
     // 接 14 隻以上：有機會疊兩種花招
-    if (streak >= 14 && Math.random() < 0.5) {
+    if (caughtN >= 14 && Math.random() < 0.5) {
       const others = open.filter((t) => t !== list[0] && !(list[0].id === 'hop' && t.id === 'double') && !(list[0].id === 'double' && t.id === 'hop'));
       if (others.length) list.push(others[Math.floor(Math.random() * others.length)]);
     }
@@ -1335,8 +1341,8 @@ function pickTrick() {
     vanishFrom: r(2.4, 3.0), vanishTo: r(0.8, 1.1),
   };
   // 時機範圍隨連續次數變窄
-  WIN_HI = Math.max(0.8 - streak * 0.01, 0.55);
-  WIN_LO = Math.min(-0.45 + streak * 0.005, -0.32);
+  WIN_HI = Math.max(0.8 - caughtN * 0.01, 0.55);
+  WIN_LO = Math.min(-0.45 + caughtN * 0.005, -0.32);
   speedMul = 1;
 }
 const has = (id) => trick && trick.some((t) => t.id === id);
@@ -1374,9 +1380,9 @@ function setState(s) {
 }
 function setButton(text, enabled = true, ic = null) { setLabel(actionBtn, text, ic, { size: 26 }); actionBtn.disabled = !enabled; }
 function updateScore() {
-  scoreEl.textContent = `${mode === 'duo' ? '雙人合作 ' : mode === 'multi' ? '派對 ' : ''}連續接住 ${streak} 隻（最佳 ${best}）`;
+  scoreEl.textContent = `${mode === 'duo' ? '雙人合作 ' : mode === 'multi' ? '派對 ' : ''}連續接住 ${caughtN} 隻（最佳 ${bestTotal}）`;
   const sub = document.createElement('span'); sub.className = 'sub';
-  sub.textContent = `接住次數 ${caughtN} 次（最佳 ${bestTotal}）`;
+  sub.textContent = `完美接住 ${streak} 隻（最佳 ${best}）`;
   scoreEl.appendChild(sub);
 }
 let toastTimer;
@@ -1441,20 +1447,20 @@ function tryCatch() {
         smallY = CATCH_Y; vel = 0; small.visible = true;
         squeeze = 1;
         const rescued = !!trickState.rebound;           // 稀有鴨掉地上彈起來後的第二次接住
-        if (rescued) { runBest = Math.max(runBest, streak); streak = 1; }  // 算接住、遊戲繼續，但連續重新算
+        if (rescued) { runBest = Math.max(runBest, streak); streak = 1; }  // 算接住、連續接住繼續；完美接住重新算
         else streak++;
         caughtN++;
         saveBests();
         updateScore();
         const firsts = rescued ? [] : recordCaught(trick);
-        const bonus = streak % 5 === 0 ? 1 : 0;        // 連續 5 的倍數：多 1 枚
+        const bonus = caughtN % 5 === 0 ? 1 : 0;        // 連續接住 5 的倍數：多 1 枚
         const reward = (rescued ? 1 : coinReward(trick)) + bonus;
         addCoins(reward); setTimeout(() => sfx.coin(), 260); if (reward > 1) setTimeout(() => sfx.coin(), 420); buddiesCheer();
-        if (firsts.length || bonus) { sfx.fanfare(); hap.big(); } else { sfx.catchSound(streak); hap.caught(); }
+        if (firsts.length || bonus) { sfx.fanfare(); hap.big(); } else { sfx.catchSound(caughtN); hap.caught(); }
         if (firsts.length) firsts.forEach((tr) => achieve(`成功接住${tr.name.replace('！', '')}`));
-        else if (rescued) toast('救回來了！連續重新計算');
-        else if (bonus) toast(`連續 ${streak} 隻！多送 1 枚鴨幣`);
-        else toast(streak >= 3 ? `接得好！連續 ${streak} 隻` : '接得好！');
+        else if (rescued) toast(`救回來了！連續 ${caughtN} 隻（完美接住重新算）`);
+        else if (bonus) toast(`連續 ${caughtN} 隻！多送 1 枚鴨幣`);
+        else toast(caughtN >= 3 ? `接得好！連續 ${caughtN} 隻` : '接得好！');
 
         setButton('…', false);
       } else {
@@ -1843,7 +1849,7 @@ function handleMsg(msg, from) {
     saveBests();
     updateScore();
     toast(msg.ok ? `${nameOf(from)} 收到鴨！` : `${nameOf(from)} 沒接到…`, msg.ok ? 'party' : null);
-    if (msg.ok) { sfx.catchSound(streak); quack(0.3, 1.1, 0.35, 0.15); hap.caught(); } else { sfx.sadTrombone(0); hap.sad(); }
+    if (msg.ok) { sfx.catchSound(caughtN); quack(0.3, 1.1, 0.35, 0.15); hap.caught(); } else { sfx.sadTrombone(0); hap.sad(); }
     pendingTarget = null;
     becomeWaiter(null);
     if (roomKind === 'duo') setButton('換你接！等朋友拋鴨…', false);
@@ -1856,7 +1862,7 @@ const boardEl = document.getElementById('board');
 const boardList = document.getElementById('boardList');
 const submitEl = document.getElementById('submit');
 const submitText = document.getElementById('submitText');
-let boardMode = 'solo', boardKind = 'streak', pendingScore = 0, pendingTotal = 0, pendingMode = 'solo';
+let boardMode = 'solo', boardKind = 'total', pendingScore = 0, pendingTotal = 0, pendingMode = 'solo';
 const gameUrl = () => location.origin + location.pathname;
 
 async function share(text, url) {
@@ -1867,13 +1873,13 @@ async function share(text, url) {
   catch (e) { toast('請複製網址分享給朋友'); }
 }
 function offerSubmit(score, total) {
-  if (score < 1 || mode === 'multi') return; // 多人派對不登記排行榜
+  if ((total || 0) < 1 || mode === 'multi') return; // 多人派對不登記排行榜
   // 雙人模式只由沒接到的那一方登記一次，避免重複
   pendingScore = score;
   pendingTotal = Math.max(score, total || 0);
   pendingMode = mode;
   const who = mode === 'duo' && partner ? `${myName()}＆${partner.name}` : myName();
-  submitText.textContent = `${mode === 'duo' ? '你們' : '你'}這局最多連續接住 ${score} 隻、總共接住 ${pendingTotal} 次！\n用「${who}」登記成績？`;
+  submitText.textContent = `${mode === 'duo' ? '你們' : '你'}這局連續接住 ${pendingTotal} 隻（完美接住最多 ${score} 隻）！\n用「${who}」登記成績？`;
   show(submitEl, true);
 }
 document.getElementById('submitBtn').addEventListener('click', async () => {
@@ -1884,7 +1890,7 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   catch (e) { toast(e && e.message === 'too fast' ? '登記太快了，等幾秒再試' : '登記失敗，請再試一次'); }
 });
 document.getElementById('shareScoreBtn').addEventListener('click', () => {
-  share(`我在「抱抱鴨」${pendingMode === 'duo' ? '雙人合作' : ''}最多連續接住 ${pendingScore} 隻、總共接住 ${pendingTotal} 次小鴨！你能接幾隻？`, gameUrl());
+  share(`我在「抱抱鴨」${pendingMode === 'duo' ? '雙人合作' : ''}連續接住了 ${pendingTotal} 隻小鴨（完美接住 ${pendingScore} 隻）！你能接幾隻？`, gameUrl());
 });
 document.getElementById('skipBtn').addEventListener('click', () => show(submitEl, false));
 
@@ -1893,8 +1899,8 @@ async function openBoard() {
   document.querySelectorAll('#board .tab[data-m]').forEach((b) => b.classList.toggle('on', b.dataset.m === boardMode));
   document.querySelectorAll('#board .ktab').forEach((b) => b.classList.toggle('on', b.dataset.kind === boardKind));
   document.getElementById('boardNote').textContent = boardKind === 'total'
-    ? '一局裡總共接住幾次（稀有鴨彈起來救回也算，小鴨哭了才結束）'
-    : '一局裡最長的連續接住（中間不能靠彈起來救回）';
+    ? '一局連續接住幾隻（稀有鴨彈起來救回也算，小鴨哭了才結束）'
+    : '一局裡最長的完美接住（每隻都一次接住，不靠彈起來救回）';
   boardList.textContent = '讀取中…';
   if (!(await hasServer())) { boardList.textContent = '排行榜要放上網站後才能用。'; return; }
   let rows = null;
@@ -1906,7 +1912,7 @@ async function openBoard() {
     const li = document.createElement('li');
     const rank = document.createElement('span'); rank.className = 'rk'; if (i < 3) rank.innerHTML = icon(['gold', 'silver', 'bronze'][i], 26); else rank.textContent = String(i + 1);
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = r.name;
-    const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = boardKind === 'total' ? `${r.score} 次` : `${r.score} 隻`;
+    const sc = document.createElement('span'); sc.className = 'sc'; sc.textContent = `${r.score} 隻`;
     li.append(rank, nm, sc);
     boardList.appendChild(li);
   });
@@ -1962,7 +1968,7 @@ document.getElementById('dexBack').addEventListener('click', openMenu);
 // ---------- 鴨幣 ＆ 鴨商城（介面） ----------
 let coins = 0;
 try { coins = Math.max(0, Math.floor(+localStorage.getItem('hugduck-coins') || 0)); } catch (e) {}
-const shopState = { owned: [], outfit: null };
+const shopState = { owned: [], wear: [] };
 try { Object.assign(shopState, JSON.parse(localStorage.getItem('hugduck-shop') || '{}')); } catch (e) {}
 const saveShop = () => { try { localStorage.setItem('hugduck-shop', JSON.stringify(shopState)); localStorage.setItem('hugduck-coins', String(coins)); } catch (e) {} };
 const coinEl = document.getElementById('coins');
@@ -2017,8 +2023,12 @@ const refreshActs = () => { enabledActs = shopState.acts.filter((id) => !shopSta
 refreshActs();
 // 一進來就穿上已經買好的造型、讓夥伴小鴨站好
 shopState.owned = shopState.owned.filter((id) => SHOP_ITEMS.some((x) => x.id === id));
-if (!shopState.owned.includes(shopState.outfit)) shopState.outfit = null;
-wearOutfit(shopState.outfit);
+// 舊存檔只有一件 outfit → 換成可以多件的 wear
+if (!Array.isArray(shopState.wear)) shopState.wear = [];
+if (shopState.outfit) { if (!shopState.wear.includes(shopState.outfit)) shopState.wear.push(shopState.outfit); delete shopState.outfit; }
+shopState.wear = shopState.wear.filter((id) => shopState.owned.includes(id) && OUTFITS[id]);
+{ const seen = new Set(); shopState.wear = shopState.wear.filter((id) => !seen.has(OUTFIT_SLOT[id]) && seen.add(OUTFIT_SLOT[id])); }
+wearOutfit(shopState.wear);
 if (shopState.held && shopState.held !== 'white' && shopState.owned.includes(shopState.held)) setHeldDuck(shopState.held);
 else shopState.held = 'white';
 placeBuddies(shopState.owned.filter((id) => BUDDIES[id]));
@@ -2055,10 +2065,11 @@ function openShop() {
   if (shopTab === 'decor') { drawDecorShop(); return; }
   for (const it of SHOP_ITEMS.filter((x) => x.kind === shopTab)) {
     const owned = it.free || shopState.owned.includes(it.id);
-    const worn = shopState.outfit === it.id;
+    const worn = shopState.wear.includes(it.id);
     const li = document.createElement('li');
-    li.innerHTML = `<span class="sh-ic">${icon(it.ic, 46)}</span><span class="sh-tx"><b></b><small>${icon('coin', 16)}${it.price}</small></span>`;
+    li.innerHTML = `<span class="sh-ic">${icon(it.ic, 46)}</span><span class="sh-tx"><b></b><small>${owned ? (it.free ? '一開始就有' : '已購買') : `${icon('coin', 16)}${it.price}`}</small></span>`;
     li.querySelector('b').textContent = it.name;
+    if (it.kind === 'big') li.querySelector('small').append(`　${SLOT_NAME[OUTFIT_SLOT[it.id]]}`);
     const btn = document.createElement('button');
     if (!owned) {
       btn.textContent = coins >= it.price ? '購買' : `還差 ${it.price - coins}`;
@@ -2068,7 +2079,7 @@ function openShop() {
     } else if (it.kind === 'big') {
       btn.textContent = worn ? '脫下' : '穿上';
       btn.className = worn ? '' : 'buy';
-      btn.onclick = () => changeOutfit(worn ? null : it.id);
+      btn.onclick = () => changeOutfit(worn ? shopState.wear.filter((x) => x !== it.id) : outfitWith(shopState.wear, it.id));
     } else if (heldId === it.id) {
       btn.textContent = '抱著中';
       btn.disabled = true;
@@ -2119,7 +2130,7 @@ function buy(it) {
   coins -= it.price;
   shopState.owned.push(it.id);
   saveShop(); drawCoins(true); sfx.coin();
-  if (it.kind === 'big') changeOutfit(it.id);
+  if (it.kind === 'big') changeOutfit(outfitWith(shopState.wear, it.id));
   else {
     placeBuddies(shopState.owned.filter((id) => BUDDIES[id]));
     show(shopEl, false);
@@ -2153,7 +2164,7 @@ function drawDecorShop() {
     const orig = remain.reduce((a, x) => a + x.price, 0);
     row(th.ic, `${th.name}（全套 ${th.items.length} 件）`, remain.length ? `${icon('coin', 16)}${bp}　<s>${orig}</s>` : '已全部擁有', all, 'bundle');
     for (const it of th.items) {
-      const owned = shopState.decor.includes(it.id);
+      const owned = shopState.decor.includes(it.id);   // 買全套的話，單買的每一件也都算已購買
       const btn = document.createElement('button');
       if (!owned) {
         btn.textContent = coins >= it.price ? '購買' : `還差 ${it.price - coins}`;
@@ -2165,7 +2176,7 @@ function drawDecorShop() {
         btn.className = on ? '' : 'buy';
         btn.onclick = () => { toggleDecor(it.id, !on); openShop(); };
       }
-      row(it.ic, it.name, `${icon('coin', 16)}${it.price}`, btn);
+      row(it.ic, it.name, owned ? '已購買' : `${icon('coin', 16)}${it.price}`, btn);
     }
   }
 }
@@ -2195,11 +2206,11 @@ function holdBuddy(it) {
   });
   if (!ok) openShop();
 }
-function changeOutfit(id) {
+function changeOutfit(list) {
   if (wardrobe.active) return;
-  shopState.outfit = id; saveShop();
+  shopState.wear = list; saveShop();
   show(shopEl, false);
-  startWardrobe(id, () => { toast(id ? '換好了！好看嗎？' : '換回原本的樣子了'); setTimeout(openShop, 900); });
+  startWardrobe(list, () => { toast(list.length ? '換好了！好看嗎？' : '換回原本的樣子了'); setTimeout(openShop, 900); });
 }
 document.getElementById('shopBtn').addEventListener('click', openShop);
 document.querySelectorAll('#shop .tab').forEach((b) => b.addEventListener('click', () => { shopTab = b.dataset.k; openShop(); }));
@@ -2525,4 +2536,4 @@ document.getElementById('loading').remove();
 animate();
 
 // 測試用：讓自動測試讀得到遊戲狀態
-window.__duck = { get scene3d() { return { small, buddyObjs, pairRoot, swap, wardrobe, booth, big, hugWings, THREE }; }, get dex() { return dex; }, get state() { return state; }, get rel() { return smallY - CATCH_Y; }, get vel() { return vel; }, setStreak(n) { streak = n; updateScore(); }, get trick() { return trick && trick.map((t) => t.id); } };
+window.__duck = { get scene3d() { return { small, buddyObjs, pairRoot, swap, wardrobe, booth, big, hugWings, THREE }; }, get dex() { return dex; }, get state() { return state; }, get rel() { return smallY - CATCH_Y; }, get vel() { return vel; }, setStreak(n) { streak = n; caughtN = n; updateScore(); }, get trick() { return trick && trick.map((t) => t.id); } };

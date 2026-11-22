@@ -51,7 +51,7 @@
   .panel button.link { border: none; box-shadow: none; background: none; font-weight: 600; color: #6b6255; }
   .panel input { font: inherit; font-size: 17px; padding: 10px 12px; border: 2.5px solid #1b1b1b; border-radius: 12px; min-width: 0; text-align: center; }
   .panel .row, .card .row { display: flex; gap: 8px; } .panel .row input { flex: 1; } .card .row button { flex: 1; }
-  .ktabs { margin-top: 6px; } .ktabs .tab.on { background: #ffe0a0; }
+  .ktabs { margin-top: 6px; } .ktabs .ktab.tab.on { background: #ffe9b8; box-shadow: inset 0 0 0 2px #ffb627; }
   .board-note { margin: 6px 0 0; font-size: 12.5px; color: #8a8072; text-align: center; }
   .score .sub { display: block; font-size: .82em; opacity: .85; margin-top: 2px; }
   .tabs { display: flex; gap: 6px; } .tabs .tab { flex: 1; padding: 8px; font-size: 15px; } .tabs .tab.on { background: #ffc35a; }
@@ -172,7 +172,7 @@
 <div class="panel hidden" id="board">
   <h2><span data-ic="trophy" data-size="26"></span>排行榜</h2>
   <div class="tabs"><button class="tab on" data-m="solo">單人</button><button class="tab" data-m="duo">雙人合作</button></div>
-  <div class="tabs ktabs"><button class="ktab tab on" data-kind="streak">連續接住</button><button class="ktab tab" data-kind="total">接住次數</button></div>
+  <div class="tabs ktabs"><button class="ktab tab on" data-kind="total">連續接住</button><button class="ktab tab" data-kind="streak">完美接住</button></div>
   <p class="board-note" id="boardNote"></p>
   <ol class="list" id="boardList"></ol>
   <button id="boardShare"><span data-ic="send"></span>分享給朋友</button>
